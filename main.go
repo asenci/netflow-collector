@@ -1,35 +1,57 @@
 package main
 
 import (
-	"log"
 	"os"
 	"os/signal"
+	"syscall"
 )
 
+//todo: session get channel
+//todo: move DB session to main worker?
+
 func main() {
-	opts := NewOptions()
-	opts.SetFlags()
+	options := NewOptions()
+	options.SetFlags()
 
-	manager := NewManager()
+	shutdownChannel := make(chan os.Signal)
+	signal.Notify(shutdownChannel, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 
-	signalsChannel := make(chan os.Signal)
-	go func() {
-		<-signalsChannel
-		log.Println("[main] shutting down")
-		manager.Stop()
-	}()
-	signal.Notify(signalsChannel, os.Interrupt)
+	main := NewMainWorker(options, shutdownChannel)
 
-	ipfixSessionWorker := NewIpfixSessionWorker(opts.IpfixCachePath, opts.IpfixCacheInterval)
-	manager.Start(ipfixSessionWorker)
+	main.Run()
 
-	networkWorker := NewNetworkWorker(opts.Address)
-	manager.Start(networkWorker)
+	main.Wait()
+}
 
-	for i := 0; i < opts.IpfixWorkers; i++ {
-		ipfixWorker := NewIpfixWorker(i, ipfixSessionWorker, networkWorker.WorkChannel)
-		manager.Start(ipfixWorker)
+type MainWorker struct {
+	*Worker
+
+	signalChannel <-chan os.Signal
+}
+
+func NewMainWorker(o *Options, in <-chan os.Signal) *MainWorker {
+	return &MainWorker{
+		Worker: NewWorker("main", nil, o),
+
+		signalChannel: in,
 	}
+}
 
-	manager.Wait()
+func (w *MainWorker) Run() error {
+	go func() {
+		for range w.signalChannel {
+			w.Shutdown()
+		}
+	}()
+
+	sqlChannel := make(chan DatabaseRow, 1000)
+
+	w.Spawn(NewStatsWorker(w, nil, w))
+
+	w.Spawn(NewMainDatabaseWorker(w, nil, sqlChannel))
+
+	w.Spawn(NewIpfixMainWorker(w, nil, sqlChannel))
+
+	w.Wait()
+	return nil
 }

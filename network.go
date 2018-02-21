@@ -1,21 +1,17 @@
 package main
 
 import (
-	"log"
 	"net"
 )
 
 type NetworkWorkUnit struct {
-	Address net.Addr
-	Data    []byte
+	WorkUnit
+
+	address net.Addr
 }
 
-func (w NetworkWorkUnit) GetData() []byte {
-	return w.Data
-}
-
-func (w NetworkWorkUnit) GetTag() string {
-	switch a := w.Address.(type) {
+func (u NetworkWorkUnit) Tag() string {
+	switch a := u.address.(type) {
 	case *net.IPAddr:
 		return a.IP.String()
 	case *net.UDPAddr:
@@ -26,55 +22,71 @@ func (w NetworkWorkUnit) GetTag() string {
 }
 
 type NetworkWorker struct {
-	address     string
-	packetConn  net.PacketConn
-	WorkChannel chan WorkUnit
+	*Worker
+
+	address       string
+	packetConn    net.PacketConn
+	stats         *NetworkWorkerStats
+	outputChannel chan<- WorkUnitInterface
 }
 
-func NewNetworkWorker(networkAddress string) *NetworkWorker {
+func NewNetworkWorker(n string, p WorkerInterface, o *Options, out chan<- WorkUnitInterface) *NetworkWorker {
+	w := NewWorker(n, p, o)
+
 	return &NetworkWorker{
-		address:     networkAddress,
-		WorkChannel: make(chan WorkUnit, 1000),
+		Worker: w,
+
+		address:       w.options.IpfixAddress,
+		stats:         new(NetworkWorkerStats),
+		outputChannel: out,
 	}
 }
 
-func (w *NetworkWorker) Run() {
-	log.Printf("[network %s] started network worker\n", w.address)
-
-	defer close(w.WorkChannel)
+func (w *NetworkWorker) Run() error {
+	defer close(w.outputChannel)
 
 	var err error
 
 	w.packetConn, err = net.ListenPacket("udp", w.address)
 	if err != nil {
-		log.Printf("[network %s] %s\n", w.address, err)
-		return
+		w.stats.Errors++
+		return err
 	}
 
-	log.Printf("[network %s] listening on %s\n", w.address, w.packetConn.LocalAddr())
+	w.Log("listening on ", w.packetConn.LocalAddr())
 
 	inboundBuffer := make([]byte, 65536)
 
 	for {
 		n, addr, err := w.packetConn.ReadFrom(inboundBuffer)
 		if err != nil {
-			log.Printf("[network %s] %s\n", w.address, err)
-			break
+			w.stats.Errors++
+			return err
 		}
 
-		workUnit := NetworkWorkUnit{
-			Address: addr,
-			Data:    make([]byte, n),
-		}
-		copy(workUnit.Data, inboundBuffer)
+		w.stats.ReceivedPackets++
 
-		w.WorkChannel <- workUnit
+		workUnit := NetworkWorkUnit{address: addr}
+		workUnit.data = make([]byte, n)
+		copy(workUnit.data, inboundBuffer)
+
+		w.outputChannel <- workUnit
 	}
-
-	log.Printf("[network %s] stoped network worker\n", w.address)
 }
 
-func (w *NetworkWorker) Shutdown() {
-	log.Printf("[network %s] received shutdown signal\n", w.address)
+func (w *NetworkWorker) Shutdown() error {
+	err := w.Worker.Shutdown()
+	if err != nil {
+		return err
+	}
+
 	w.packetConn.Close()
+
+	return nil
+}
+
+type NetworkWorkerStats struct {
+	Errors          uint64
+	ReceivedPackets uint64
+	Queue           int
 }
