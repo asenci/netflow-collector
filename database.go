@@ -127,40 +127,28 @@ func (w *DatabaseWorker) Run() error {
 		tx, err := w.database.Begin()
 		if err != nil {
 			w.stats.Errors++
-			w.Log(err)
-			time.Sleep(time.Second)
-			continue
+			return err
 		}
 
 		stmt, err := tx.Prepare(sqlStatement)
 		if err != nil {
 			w.stats.Errors++
-			w.Log(err)
-			time.Sleep(time.Second)
-			continue
+			return err
 		}
 
-		for i := 0; i < w.options.DatabaseBatchSize; i++ {
+		for i := 0; i < w.options.DatabaseBatchSize/w.options.DatabaseWorkers; i++ {
 			flow, open := <-w.inputChannel
 			if !open {
 				break
 			}
 
-			r, err := stmt.Exec(DatabaseRow(*flow).Values())
+			_, err := stmt.Exec(DatabaseRow(*flow).Values()...)
 			if err != nil {
 				w.stats.Errors++
 				w.Log(err)
 				break
 			}
-
-			n, err := r.RowsAffected()
-			if err != nil {
-				w.stats.Errors++
-				w.Log(err)
-				continue
-			}
-
-			w.stats.Inserts += uint64(n)
+			w.stats.Inserts++
 		}
 
 		err = tx.Commit()
@@ -173,12 +161,13 @@ func (w *DatabaseWorker) Run() error {
 				w.stats.Errors++
 				w.Log(err)
 			}
+			w.stats.Rollbacks++
 
 			time.Sleep(time.Second)
 			continue
-		} else {
-
 		}
+		w.stats.Commits++
+
 	}
 
 	return nil
@@ -189,6 +178,8 @@ func (w *DatabaseWorker) Stats() interface{} {
 }
 
 type DatabaseWorkerStats struct {
-	Errors  uint64
-	Inserts uint64
+	Commits   uint64
+	Errors    uint64
+	Inserts   uint64
+	Rollbacks uint64
 }

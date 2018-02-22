@@ -24,13 +24,15 @@ func NewIpfixMainWorker(p WorkerInterface, o *Options, out chan<- *Flow) *IpfixM
 	return &IpfixMainWorker{
 		Worker: NewWorker("ipfix", p, o),
 
-		networkChannel: make(chan *NetworkPayload, 1000),
+		networkChannel: make(chan *NetworkPayload, 100000),
 		outputChannel:  out,
 		stats:          new(IpfixMainWorkerStats),
 	}
 }
 
 func (w *IpfixMainWorker) Run() error {
+	defer close(w.outputChannel)
+
 	sessionWorker := NewIpfixSessionWorker(w, nil)
 	w.Spawn(sessionWorker)
 
@@ -282,31 +284,29 @@ func (w *IpfixWorker) Run() error {
 				fieldList := session.Interpret(rec)
 
 				flow := &Flow{
-					host: payload.Host(),
+					Host: payload.Host(),
 				}
 
 				for _, field := range fieldList {
 					switch field.Name {
 					case "sourceIPv4Address", "sourceIPv6Address":
-						flow.sourceAddressInt = field.Value.(*net.IP)
-						flow.sourceAddress = flow.sourceAddressInt.String()
+						flow.SourceAddress = field.Value.(*net.IP).String()
 					case "bgpSourceAsNumber":
-						flow.sourceAs = field.Value.(uint32)
+						flow.SourceAs = field.Value.(uint32)
 					case "sourceTransportPort":
-						flow.sourcePort = field.Value.(uint16)
+						flow.SourcePort = field.Value.(uint16)
 					case "destinationIPv4Address", "destinationIPv6Address":
-						flow.destinationAddressInt = field.Value.(*net.IP)
-						flow.destinationAddress = flow.destinationAddressInt.String()
+						flow.DestinationAddress = field.Value.(*net.IP).String()
 					case "bgpDestinationAsNumber":
-						flow.destinationAs = field.Value.(uint32)
+						flow.DestinationAs = field.Value.(uint32)
 					case "destinationTransportPort":
-						flow.destinationPort = field.Value.(uint16)
+						flow.DestinationPort = field.Value.(uint16)
 					case "protocolIdentifier":
-						flow.transportProtocol = field.Value.(uint8)
+						flow.TransportProtocol = field.Value.(uint8)
 					case "octetDeltaCount":
-						flow.bytes = field.Value.(uint64)
+						flow.Bytes = field.Value.(uint64)
 					case "packetDeltaCount":
-						flow.packets = field.Value.(uint64)
+						flow.Packets = field.Value.(uint64)
 					}
 				}
 

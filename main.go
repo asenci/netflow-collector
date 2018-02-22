@@ -40,11 +40,11 @@ func NewMainWorker(o *Options) *MainWorker {
 }
 
 func (w *MainWorker) Run() error {
-	sqlChannel := make(chan *Flow, 1000)
+	sqlChannel := make(chan *Flow, 100000)
 
 	w.Spawn(NewStatsWorker(w, nil, w))
 
-	//w.Spawn(NewDatabaseMainWorker(w, nil, sqlChannel))
+	w.Spawn(NewDatabaseMainWorker(w, nil, sqlChannel))
 
 	w.Spawn(NewIpfixMainWorker(w, nil, sqlChannel))
 
