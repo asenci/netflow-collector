@@ -9,10 +9,8 @@ import (
 type StatsWorker struct {
 	*Worker
 
-	address string
-	root    WorkerInterface
-	server  *http.Server
-	stats   *StatsWorkerStats
+	root  WorkerInterface
+	stats *StatsWorkerStats
 }
 
 func NewStatsWorker(p WorkerInterface, o *Options, root WorkerInterface) *StatsWorker {
@@ -21,9 +19,8 @@ func NewStatsWorker(p WorkerInterface, o *Options, root WorkerInterface) *StatsW
 	return &StatsWorker{
 		Worker: w,
 
-		address: w.options.StatsAddress,
-		root:    root,
-		stats:   new(StatsWorkerStats),
+		root:  root,
+		stats: new(StatsWorkerStats),
 	}
 }
 
@@ -37,16 +34,22 @@ func (w *StatsWorker) Run() error {
 		}
 	})
 
-	w.server = &http.Server{Addr: w.address, Handler: nil}
-
-	listener, err := net.Listen("tcp", w.address)
+	listener, err := net.Listen("tcp", w.options.StatsAddress)
 	if err != nil {
 		w.stats.Errors++
 		return err
 	}
 	w.Log("listening on ", listener.Addr())
 
-	if err := w.server.Serve(listener.(*net.TCPListener)); err != nil {
+	server := &http.Server{Addr: w.options.StatsAddress, Handler: nil}
+
+	go func(l net.Listener, s *http.Server) {
+		<-w.shutdown
+		s.Close()
+		l.Close()
+	}(listener, server)
+
+	if err := server.Serve(listener.(*net.TCPListener)); err != nil {
 		w.stats.Errors++
 		return err
 	}
@@ -54,15 +57,8 @@ func (w *StatsWorker) Run() error {
 	return nil
 }
 
-func (w *StatsWorker) Shutdown() error {
-	err := w.Worker.Shutdown()
-	if err != nil {
-		return err
-	}
-
-	w.server.Close()
-
-	return nil
+func (w *StatsWorker) Stats() interface{} {
+	return w.stats
 }
 
 type StatsWorkerStats struct {

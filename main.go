@@ -7,16 +7,22 @@ import (
 )
 
 //todo: session get channel
-//todo: move DB session to main worker?
+//todo: fix in/out channels types
+//todo: expire caches
 
 func main() {
 	options := NewOptions()
 	options.SetFlags()
 
+	main := NewMainWorker(options)
+
 	shutdownChannel := make(chan os.Signal)
 	signal.Notify(shutdownChannel, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-
-	main := NewMainWorker(options, shutdownChannel)
+	go func(w WorkerInterface) {
+		for range shutdownChannel {
+			w.Shutdown()
+		}
+	}(main)
 
 	main.Run()
 
@@ -25,30 +31,20 @@ func main() {
 
 type MainWorker struct {
 	*Worker
-
-	signalChannel <-chan os.Signal
 }
 
-func NewMainWorker(o *Options, in <-chan os.Signal) *MainWorker {
+func NewMainWorker(o *Options) *MainWorker {
 	return &MainWorker{
 		Worker: NewWorker("main", nil, o),
-
-		signalChannel: in,
 	}
 }
 
 func (w *MainWorker) Run() error {
-	go func() {
-		for range w.signalChannel {
-			w.Shutdown()
-		}
-	}()
-
-	sqlChannel := make(chan DatabaseRow, 1000)
+	sqlChannel := make(chan *Flow, 1000)
 
 	w.Spawn(NewStatsWorker(w, nil, w))
 
-	w.Spawn(NewMainDatabaseWorker(w, nil, sqlChannel))
+	//w.Spawn(NewDatabaseMainWorker(w, nil, sqlChannel))
 
 	w.Spawn(NewIpfixMainWorker(w, nil, sqlChannel))
 

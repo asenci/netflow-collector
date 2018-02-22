@@ -4,13 +4,12 @@ import (
 	"net"
 )
 
-type NetworkWorkUnit struct {
-	WorkUnit
-
+type NetworkPayload struct {
 	address net.Addr
+	data    []byte
 }
 
-func (u NetworkWorkUnit) Tag() string {
+func (u NetworkPayload) Host() string {
 	switch a := u.address.(type) {
 	case *net.IPAddr:
 		return a.IP.String()
@@ -25,12 +24,11 @@ type NetworkWorker struct {
 	*Worker
 
 	address       string
-	packetConn    net.PacketConn
 	stats         *NetworkWorkerStats
-	outputChannel chan<- WorkUnitInterface
+	outputChannel chan<- *NetworkPayload
 }
 
-func NewNetworkWorker(n string, p WorkerInterface, o *Options, out chan<- WorkUnitInterface) *NetworkWorker {
+func NewNetworkWorker(n string, p WorkerInterface, o *Options, out chan<- *NetworkPayload) *NetworkWorker {
 	w := NewWorker(n, p, o)
 
 	return &NetworkWorker{
@@ -45,20 +43,21 @@ func NewNetworkWorker(n string, p WorkerInterface, o *Options, out chan<- WorkUn
 func (w *NetworkWorker) Run() error {
 	defer close(w.outputChannel)
 
-	var err error
-
-	w.packetConn, err = net.ListenPacket("udp", w.address)
+	packetConn, err := net.ListenPacket("udp", w.address)
 	if err != nil {
 		w.stats.Errors++
 		return err
 	}
+	w.Log("listening on ", packetConn.LocalAddr())
 
-	w.Log("listening on ", w.packetConn.LocalAddr())
+	go func(pc net.PacketConn) {
+		<-w.shutdown
+		pc.Close()
+	}(packetConn)
 
 	inboundBuffer := make([]byte, 65536)
-
 	for {
-		n, addr, err := w.packetConn.ReadFrom(inboundBuffer)
+		n, addr, err := packetConn.ReadFrom(inboundBuffer)
 		if err != nil {
 			w.stats.Errors++
 			return err
@@ -66,27 +65,19 @@ func (w *NetworkWorker) Run() error {
 
 		w.stats.ReceivedPackets++
 
-		workUnit := NetworkWorkUnit{address: addr}
-		workUnit.data = make([]byte, n)
-		copy(workUnit.data, inboundBuffer)
+		payload := &NetworkPayload{address: addr}
+		payload.data = make([]byte, n)
+		copy(payload.data, inboundBuffer)
 
-		w.outputChannel <- workUnit
+		w.outputChannel <- payload
 	}
 }
 
-func (w *NetworkWorker) Shutdown() error {
-	err := w.Worker.Shutdown()
-	if err != nil {
-		return err
-	}
-
-	w.packetConn.Close()
-
-	return nil
+func (w *NetworkWorker) Stats() interface{} {
+	return w.stats
 }
 
 type NetworkWorkerStats struct {
 	Errors          uint64
 	ReceivedPackets uint64
-	Queue           int
 }

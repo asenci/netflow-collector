@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -14,33 +15,46 @@ import (
 type IpfixMainWorker struct {
 	*Worker
 
-	sessionWorker *IpfixSessionWorker
-	inputChannel  chan WorkUnitInterface
-	outputChannel chan<- DatabaseRow
+	networkChannel chan *NetworkPayload
+	outputChannel  chan<- *Flow
+	stats          *IpfixMainWorkerStats
 }
 
-func NewIpfixMainWorker(p WorkerInterface, o *Options, out chan<- DatabaseRow) *IpfixMainWorker {
+func NewIpfixMainWorker(p WorkerInterface, o *Options, out chan<- *Flow) *IpfixMainWorker {
 	return &IpfixMainWorker{
 		Worker: NewWorker("ipfix", p, o),
 
-		inputChannel:  make(chan WorkUnitInterface, 1000),
-		outputChannel: out,
+		networkChannel: make(chan *NetworkPayload, 1000),
+		outputChannel:  out,
+		stats:          new(IpfixMainWorkerStats),
 	}
 }
 
 func (w *IpfixMainWorker) Run() error {
-	defer close(w.outputChannel)
-	w.sessionWorker = NewIpfixSessionWorker(w, nil)
-	w.Spawn(w.sessionWorker)
-
-	w.Spawn(NewNetworkWorker("network", w, nil, w.inputChannel))
+	sessionWorker := NewIpfixSessionWorker(w, nil)
+	w.Spawn(sessionWorker)
 
 	for i := 0; i < w.options.IpfixWorkers; i++ {
-		w.Spawn(NewIpfixWorker(i, w, nil, w.sessionWorker, w.inputChannel, w.outputChannel))
+		w.Spawn(NewIpfixWorker(i, w, nil, sessionWorker, w.networkChannel, w.outputChannel))
 	}
+
+	w.Spawn(NewNetworkWorker("network", w, nil, w.networkChannel))
 
 	w.Wait()
 	return nil
+}
+
+func (w *IpfixMainWorker) Stats() interface{} {
+	statsMap := w.Worker.Stats().(StatsMap)
+
+	w.stats.Queue = len(w.networkChannel)
+	statsMap[w.Name()] = w.stats
+
+	return statsMap
+}
+
+type IpfixMainWorkerStats struct {
+	Queue int
 }
 
 type IpfixSession struct {
@@ -53,14 +67,11 @@ type IpfixSessionMap map[string]*IpfixSession
 type IpfixSessionWorker struct {
 	*Worker
 
-	periodicTicker    *time.Ticker
-	sessionMap        IpfixSessionMap
-	sessionMutex      *sync.RWMutex
-	stats             *IpfixSessionWorkerStats
-	syncTicker        chan time.Time
-	templateCache     IpfixTemplateCache
-	templateCachePath string
-	templateMutex     *sync.RWMutex
+	sessionMap    IpfixSessionMap
+	sessionMutex  *sync.RWMutex
+	stats         *IpfixSessionWorkerStats
+	templateCache IpfixTemplateCache
+	templateMutex *sync.RWMutex
 }
 
 func NewIpfixSessionWorker(p WorkerInterface, o *Options) *IpfixSessionWorker {
@@ -69,14 +80,11 @@ func NewIpfixSessionWorker(p WorkerInterface, o *Options) *IpfixSessionWorker {
 	w2 := &IpfixSessionWorker{
 		Worker: w,
 
-		periodicTicker:    time.NewTicker(w.options.IpfixCacheInterval),
-		sessionMap:        make(IpfixSessionMap),
-		sessionMutex:      new(sync.RWMutex),
-		stats:             new(IpfixSessionWorkerStats),
-		syncTicker:        make(chan time.Time),
-		templateCache:     make(IpfixTemplateCache),
-		templateCachePath: w.options.IpfixCachePath,
-		templateMutex:     new(sync.RWMutex),
+		sessionMap:    make(IpfixSessionMap),
+		sessionMutex:  new(sync.RWMutex),
+		stats:         new(IpfixSessionWorkerStats),
+		templateCache: make(IpfixTemplateCache),
+		templateMutex: new(sync.RWMutex),
 	}
 
 	if err := w2.loadCache(); err != nil {
@@ -125,7 +133,7 @@ func (w *IpfixSessionWorker) Session(key string) *IpfixSession {
 }
 
 func (w *IpfixSessionWorker) loadCache() error {
-	data, err := ioutil.ReadFile(w.templateCachePath)
+	data, err := ioutil.ReadFile(w.options.IpfixCachePath)
 	if err != nil {
 		return err
 	}
@@ -142,13 +150,24 @@ func (w *IpfixSessionWorker) loadCache() error {
 }
 
 func (w *IpfixSessionWorker) Run() error {
-	go func() {
-		for t := range w.periodicTicker.C {
-			w.syncTicker <- t
-		}
-	}()
+	periodicTicker := time.NewTicker(w.options.IpfixCacheInterval)
+	syncTicker := make(chan time.Time)
 
-	for range w.syncTicker {
+	go func(in <-chan time.Time, out chan<- time.Time) {
+		for t := range in {
+			out <- t
+		}
+	}(periodicTicker.C, syncTicker)
+
+	go func(t *time.Ticker, c chan time.Time) {
+		<-w.shutdown
+
+		t.Stop()
+		c <- time.Now()
+		close(c)
+	}(periodicTicker, syncTicker)
+
+	for range syncTicker {
 		if err := w.writeCache(); err != nil {
 			w.stats.Errors++
 			w.Log(err)
@@ -160,17 +179,8 @@ func (w *IpfixSessionWorker) Run() error {
 	return nil
 }
 
-func (w *IpfixSessionWorker) Shutdown() error {
-	err := w.Worker.Shutdown()
-	if err != nil {
-		return err
-	}
-
-	w.periodicTicker.Stop()
-	w.syncTicker <- time.Now()
-	close(w.syncTicker)
-
-	return nil
+func (w *IpfixSessionWorker) Stats() interface{} {
+	return w.stats
 }
 
 func (w *IpfixSessionWorker) templateJson() ([]byte, error) {
@@ -213,7 +223,7 @@ func (w *IpfixSessionWorker) writeCache() error {
 		return err
 	}
 
-	if err := os.Rename(tempFile.Name(), w.templateCachePath); err != nil {
+	if err := os.Rename(tempFile.Name(), w.options.IpfixCachePath); err != nil {
 		return err
 	}
 
@@ -233,11 +243,11 @@ type IpfixWorker struct {
 
 	sessionWorker *IpfixSessionWorker
 	stats         *IpfixWorkerStats
-	inputChannel  <-chan WorkUnitInterface
-	outputChannel chan<- DatabaseRow
+	inputChannel  <-chan *NetworkPayload
+	outputChannel chan<- *Flow
 }
 
-func NewIpfixWorker(i int, p WorkerInterface, o *Options, s *IpfixSessionWorker, in <-chan WorkUnitInterface, out chan<- DatabaseRow) *IpfixWorker {
+func NewIpfixWorker(i int, p WorkerInterface, o *Options, s *IpfixSessionWorker, in <-chan *NetworkPayload, out chan<- *Flow) *IpfixWorker {
 	w := NewWorker(fmt.Sprintf("reader %d", i), p, o)
 
 	return &IpfixWorker{
@@ -251,39 +261,71 @@ func NewIpfixWorker(i int, p WorkerInterface, o *Options, s *IpfixSessionWorker,
 }
 
 func (w *IpfixWorker) Run() error {
-	for workUnit := range w.inputChannel {
-		sessionName := workUnit.Tag()
+
+	for payload := range w.inputChannel {
+		sessionName := payload.address.String()
 
 		session := w.sessionWorker.Session(sessionName)
 
-		messageList, err := session.ParseBufferAll(workUnit.Data())
+		messageList, err := session.ParseBufferAll(payload.data)
 		if err != nil {
 			w.stats.Errors++
 			w.Log(err)
 		}
 
 		for _, message := range messageList {
+			w.stats.FlowsReceived += uint64(len(message.DataRecords))
 			w.stats.MessagesReceived++
+			w.stats.TemplatesReceived += uint64(len(message.TemplateRecords))
 
-			fmt.Printf("Message %+v (%d flows and %d templates)\n", message.Header, len(message.DataRecords), len(message.TemplateRecords))
-
-			var fieldList []ipfix.InterpretedField
 			for _, rec := range message.DataRecords {
-				fieldList = session.InterpretInto(rec, fieldList)
-				//fmt.Printf("  %s\n", fieldList)
+				fieldList := session.Interpret(rec)
+
+				flow := &Flow{
+					host: payload.Host(),
+				}
+
+				for _, field := range fieldList {
+					switch field.Name {
+					case "sourceIPv4Address", "sourceIPv6Address":
+						flow.sourceAddressInt = field.Value.(*net.IP)
+						flow.sourceAddress = flow.sourceAddressInt.String()
+					case "bgpSourceAsNumber":
+						flow.sourceAs = field.Value.(uint32)
+					case "sourceTransportPort":
+						flow.sourcePort = field.Value.(uint16)
+					case "destinationIPv4Address", "destinationIPv6Address":
+						flow.destinationAddressInt = field.Value.(*net.IP)
+						flow.destinationAddress = flow.destinationAddressInt.String()
+					case "bgpDestinationAsNumber":
+						flow.destinationAs = field.Value.(uint32)
+					case "destinationTransportPort":
+						flow.destinationPort = field.Value.(uint16)
+					case "protocolIdentifier":
+						flow.transportProtocol = field.Value.(uint8)
+					case "octetDeltaCount":
+						flow.bytes = field.Value.(uint64)
+					case "packetDeltaCount":
+						flow.packets = field.Value.(uint64)
+					}
+				}
+
+				w.outputChannel <- flow
 			}
 
-			w.stats.FlowsProcessed += uint64(len(message.DataRecords))
-			w.stats.TemplatesProcessed += uint64(len(message.TemplateRecords))
 		}
 	}
 
 	return nil
 }
 
+func (w *IpfixWorker) Stats() interface{} {
+	return w.stats
+}
+
 type IpfixWorkerStats struct {
-	Errors             uint64
-	MessagesReceived   uint64
-	FlowsProcessed     uint64
-	TemplatesProcessed uint64
+	Errors            uint64
+	FlowsReceived     uint64
+	MessagesReceived  uint64
+	TemplatesReceived uint64
 }

@@ -12,25 +12,14 @@ var ShutdownAlreadyInProgress = errors.New("shutdown already in progress")
 
 type StatsMap map[string]interface{}
 
-type WorkUnit struct {
-	data []byte
-}
-
-func (u WorkUnit) Data() []byte {
-	return u.data
-}
-
-type WorkUnitInterface interface {
-	Data() []byte
-	Tag() string
-}
-
 type Worker struct {
 	children  []WorkerInterface
 	exiting   bool
+	logPrefix string
 	name      string
 	options   *Options
 	parent    WorkerInterface
+	shutdown  chan bool
 	waitGroup *sync.WaitGroup
 }
 
@@ -38,20 +27,29 @@ func NewWorker(n string, p WorkerInterface, o *Options) *Worker {
 	if o == nil && p != nil {
 		o = p.Options()
 	}
-	return &Worker{
+
+	w := &Worker{
 		children:  make([]WorkerInterface, 0),
 		exiting:   false,
 		name:      n,
 		options:   o,
 		parent:    p,
+		shutdown:  make(chan bool, 1),
 		waitGroup: new(sync.WaitGroup),
 	}
+
+	parents := make([]string, 0)
+	for _, p := range w.Parents() {
+		parents = append(parents, p.Name())
+	}
+	prefix := strings.Join(append(parents, w.Name()), " ")
+	w.logPrefix = prefix
+
+	return w
 }
 
 func (w *Worker) Log(a ...interface{}) {
-	prefix := strings.Join(append(w.Parents(), w.Name()), " ")
-
-	log.Printf("[%s] %s\n", prefix, fmt.Sprint(a...))
+	log.Printf("[%s] %s\n", w.logPrefix, fmt.Sprint(a...))
 }
 
 func (w *Worker) Name() string {
@@ -62,23 +60,32 @@ func (w *Worker) Options() *Options {
 	return w.options
 }
 
-func (w *Worker) Parents() []string {
+func (w *Worker) Parents() []WorkerInterface {
 	if w.parent == nil {
-		return []string{}
+		return []WorkerInterface{}
 	}
 
-	return append(w.parent.Parents(), w.parent.Name())
+	return append(w.parent.Parents(), w.parent)
 }
 
 func (w *Worker) RunChild(c WorkerInterface) {
-	w.Log("new child worker: ", c.Name())
+	if w.exiting {
+		return
+	}
 
+	w.Log("new child worker: ", c.Name())
 	w.children = append(w.children, c)
 
 	err := c.Run()
 	if err != nil {
-		w.Log(fmt.Sprintf("child worker error: %s: ", c.Name()), err)
-		w.Shutdown()
+		w.Log(fmt.Sprintf("child worker runtime error: %s: ", c.Name()), err)
+
+		if parents := w.Parents(); len(parents) > 0 {
+			parents[0].Shutdown()
+		} else {
+			w.Shutdown()
+		}
+
 		return
 	}
 
@@ -98,6 +105,7 @@ func (w *Worker) Shutdown() error {
 	if w.exiting {
 		return ShutdownAlreadyInProgress
 	}
+
 	w.exiting = true
 
 	w.Log("shutting down")
@@ -108,12 +116,12 @@ func (w *Worker) Shutdown() error {
 		}(c)
 	}
 
+	w.shutdown <- true
 	return nil
 }
 
-func (w *Worker) Stats() StatsMap {
+func (w *Worker) Stats() interface{} {
 	statsMap := make(StatsMap)
-
 	for _, c := range w.children {
 		statsMap[c.Name()] = c.Stats()
 	}
@@ -128,8 +136,8 @@ func (w *Worker) Wait() {
 type WorkerInterface interface {
 	Name() string
 	Options() *Options
-	Parents() []string
+	Parents() []WorkerInterface
 	Run() error
 	Shutdown() error
-	Stats() StatsMap
+	Stats() interface{}
 }

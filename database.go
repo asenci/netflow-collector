@@ -13,23 +13,55 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type DatabaseRow struct {
-	host                 string
-	sourceAddress        string
-	sourceAs             uint32
-	sourceInterface      string
-	sourcePort           uint16
-	destinationAddress   string
-	destinationAs        uint32
-	destinationInterface string
-	destinationPort      uint16
-	transportProtocol    uint8
-	packets              uint64
-	bytes                uint64
+type DatabaseMainWorker struct {
+	*Worker
+
+	inputChannel <-chan *Flow
+	stats        *DatabaseMainWorkerStats
 }
 
+func NewDatabaseMainWorker(p WorkerInterface, o *Options, in <-chan *Flow) *DatabaseMainWorker {
+	return &DatabaseMainWorker{
+		Worker: NewWorker("database", p, o),
+
+		inputChannel: in,
+		stats:        new(DatabaseMainWorkerStats),
+	}
+}
+
+func (w *DatabaseMainWorker) Run() error {
+	database, err := sql.Open(w.options.DatabaseDriver, w.options.DatabaseAddress)
+	if err != nil {
+		w.stats.Errors++
+		return err
+	}
+
+	for i := 0; i < w.options.DatabaseWorkers; i++ {
+		w.Spawn(NewDatabaseWorker(i, w, nil, database, w.inputChannel))
+	}
+
+	w.Wait()
+	return nil
+}
+
+func (w *DatabaseMainWorker) Stats() interface{} {
+	statsMap := w.Worker.Stats().(StatsMap)
+
+	w.stats.Queue = len(w.inputChannel)
+	statsMap[w.Name()] = w.stats
+
+	return statsMap
+}
+
+type DatabaseMainWorkerStats struct {
+	Errors uint64
+	Queue  int
+}
+
+type DatabaseRow Flow
+
 func (r DatabaseRow) Fields() []string {
-	structType := reflect.TypeOf(DatabaseRow{})
+	structType := reflect.TypeOf(r)
 	fieldSlice := make([]string, structType.NumField())
 
 	for i := range fieldSlice {
@@ -39,7 +71,7 @@ func (r DatabaseRow) Fields() []string {
 }
 
 func (r DatabaseRow) InsertStatement(tableName string) string {
-	fieldSlice := DatabaseRow{}.Fields()
+	fieldSlice := r.Fields()
 	valueSlice := make([]string, len(fieldSlice))
 	for i := range fieldSlice {
 		valueSlice[i] = "?"
@@ -52,7 +84,7 @@ func (r DatabaseRow) InsertStatement(tableName string) string {
 }
 
 func (r DatabaseRow) Values() []interface{} {
-	structType := reflect.ValueOf(DatabaseRow{})
+	structType := reflect.ValueOf(r)
 	valueSlice := make([]interface{}, structType.NumField())
 
 	for i := range valueSlice {
@@ -65,52 +97,36 @@ func (r DatabaseRow) Values() []interface{} {
 type DatabaseWorker struct {
 	*Worker
 
-	address      string
-	batchSize    int
-	db           *sql.DB
-	driver       string
-	table        string
-	shutdown     bool
+	database     *sql.DB
+	inputChannel <-chan *Flow
 	stats        *DatabaseWorkerStats
-	inputChannel <-chan DatabaseRow
 }
 
-func NewDatabaseWorker(i int, p WorkerInterface, o *Options, in <-chan DatabaseRow) *DatabaseWorker {
+func NewDatabaseWorker(i int, p WorkerInterface, o *Options, db *sql.DB, in <-chan *Flow) *DatabaseWorker {
 	w := NewWorker(fmt.Sprintf("writer %d", i), p, o)
 
 	return &DatabaseWorker{
 		Worker: w,
 
-		address:      w.options.DatabaseAddress,
-		batchSize:    w.options.DatabaseBatchSize,
-		driver:       w.options.DatabaseDriver,
-		table:        w.options.DatabaseTable,
-		shutdown:     false,
-		stats:        new(DatabaseWorkerStats),
+		database:     db,
 		inputChannel: in,
+		stats:        new(DatabaseWorkerStats),
 	}
 }
 
 func (w *DatabaseWorker) Run() error {
-	var err error
+	sqlStatement := (&DatabaseRow{}).InsertStatement(w.options.DatabaseTable)
 
-	w.db, err = sql.Open(w.driver, w.address)
-	if err != nil {
-		w.stats.Errors++
-		return err
-	}
-	w.Log("connected to the database")
-
-	sqlStatement := DatabaseRow{}.InsertStatement(w.table)
-
-	for !w.shutdown {
-		err = w.db.Ping()
+	for !w.exiting {
+		err := w.database.Ping()
 		if err != nil {
+			w.stats.Errors++
 			return err
 		}
 
-		tx, err := w.db.Begin()
+		tx, err := w.database.Begin()
 		if err != nil {
+			w.stats.Errors++
 			w.Log(err)
 			time.Sleep(time.Second)
 			continue
@@ -118,71 +134,61 @@ func (w *DatabaseWorker) Run() error {
 
 		stmt, err := tx.Prepare(sqlStatement)
 		if err != nil {
+			w.stats.Errors++
 			w.Log(err)
 			time.Sleep(time.Second)
 			continue
 		}
 
-		for i := 0; i < w.batchSize; i++ {
-			row, open := <-w.inputChannel
+		for i := 0; i < w.options.DatabaseBatchSize; i++ {
+			flow, open := <-w.inputChannel
 			if !open {
 				break
 			}
 
-			_, err := stmt.Exec(row.Values())
+			r, err := stmt.Exec(DatabaseRow(*flow).Values())
 			if err != nil {
+				w.stats.Errors++
 				w.Log(err)
 				break
 			}
+
+			n, err := r.RowsAffected()
+			if err != nil {
+				w.stats.Errors++
+				w.Log(err)
+				continue
+			}
+
+			w.stats.Inserts += uint64(n)
 		}
 
 		err = tx.Commit()
 		if err != nil {
+			w.stats.Errors++
 			w.Log(err)
+
+			err = tx.Rollback()
+			if err != nil {
+				w.stats.Errors++
+				w.Log(err)
+			}
+
 			time.Sleep(time.Second)
 			continue
+		} else {
+
 		}
 	}
 
 	return nil
 }
 
-func (w *DatabaseWorker) Shutdown() error {
-	err := w.Worker.Shutdown()
-	if err != nil {
-		return err
-	}
-
-	w.shutdown = true
-
-	return nil
+func (w *DatabaseWorker) Stats() interface{} {
+	return w.stats
 }
 
 type DatabaseWorkerStats struct {
 	Errors  uint64
 	Inserts uint64
-	Queue   int
-}
-
-type MainDatabaseWorker struct {
-	*Worker
-
-	inputChannel <-chan DatabaseRow
-}
-
-func NewMainDatabaseWorker(p WorkerInterface, o *Options, in <-chan DatabaseRow) *MainDatabaseWorker {
-	return &MainDatabaseWorker{
-		Worker: NewWorker("database", p, o),
-
-		inputChannel: in,
-	}
-}
-
-func (w *MainDatabaseWorker) Run() error {
-	for i := 0; i < w.options.DatabaseWorkers; i++ {
-		w.Spawn(NewDatabaseWorker(i, w, nil, w.inputChannel))
-	}
-
-	w.Wait()
-	return nil
 }
