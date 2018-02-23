@@ -70,22 +70,16 @@ type IpfixSessionMap map[string]*IpfixSession
 type IpfixSessionWorker struct {
 	*Worker
 
-	sessionMap    IpfixSessionMap
-	sessionMutex  *sync.RWMutex
+	sessionMap    sync.Map
 	stats         *IpfixSessionWorkerStats
-	templateCache IpfixTemplateCache
-	templateMutex *sync.RWMutex
+	templateCache sync.Map
 }
 
 func NewIpfixSessionWorker(p WorkerInterface, o *Options) *IpfixSessionWorker {
 	w := &IpfixSessionWorker{
 		Worker: NewWorker("session", p, o),
 
-		sessionMap:    make(IpfixSessionMap),
-		sessionMutex:  new(sync.RWMutex),
-		stats:         new(IpfixSessionWorkerStats),
-		templateCache: make(IpfixTemplateCache),
-		templateMutex: new(sync.RWMutex),
+		stats: new(IpfixSessionWorkerStats),
 	}
 
 	if err := w.loadCache(); err != nil {
@@ -103,19 +97,9 @@ func NewIpfixSessionWorker(p WorkerInterface, o *Options) *IpfixSessionWorker {
 }
 
 func (w *IpfixSessionWorker) Session(key string) *IpfixSession {
-	w.sessionMutex.Lock()
-	defer w.sessionMutex.Unlock()
-
-	w.templateMutex.RLock()
-	defer w.templateMutex.RUnlock()
-
-	session, ok := w.sessionMap[key]
+	session, ok := w.sessionMap.Load(key)
 	if !ok {
 		is := ipfix.NewSession()
-
-		cachedTRecs := w.templateCache[key]
-		is.LoadTemplateRecords(cachedTRecs)
-
 		ii := ipfix.NewInterpreter(is)
 
 		session = &IpfixSession{
@@ -123,14 +107,17 @@ func (w *IpfixSessionWorker) Session(key string) *IpfixSession {
 			ii,
 		}
 
-		w.sessionMap[key] = session
-
 		w.stats.Sessions++
+		w.sessionMap.Store(key, session)
 
 		w.Log("created new session for ", key)
+
+		if cachedTRecs, ok := w.templateCache.Load(key); ok {
+			is.LoadTemplateRecords(cachedTRecs.([]ipfix.TemplateRecord))
+		}
 	}
 
-	return session
+	return session.(*IpfixSession)
 }
 
 func (w *IpfixSessionWorker) loadCache() error {
@@ -139,12 +126,14 @@ func (w *IpfixSessionWorker) loadCache() error {
 		return err
 	}
 
-	w.templateMutex.Lock()
-	defer w.templateMutex.Unlock()
-
-	if err := json.Unmarshal(data, &(w.templateCache)); err != nil {
+	templateCache := make(IpfixTemplateCache)
+	if err := json.Unmarshal(data, templateCache); err != nil {
 		w.stats.Errors++
 		return err
+	}
+
+	for session, templateRecords := range templateCache {
+		w.templateCache.Store(session, templateRecords)
 	}
 
 	return nil
@@ -184,27 +173,14 @@ func (w *IpfixSessionWorker) Stats() interface{} {
 	return w.stats
 }
 
-func (w *IpfixSessionWorker) templateJson() ([]byte, error) {
-	w.sessionMutex.RLock()
-	defer w.sessionMutex.RUnlock()
-
-	w.templateMutex.Lock()
-	defer w.templateMutex.Unlock()
-
-	for key, session := range w.sessionMap {
-		w.templateCache[key] = session.ExportTemplateRecords()
-	}
-
-	jsonData, err := json.MarshalIndent(w.templateCache, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-
-	return jsonData, nil
-}
-
 func (w *IpfixSessionWorker) writeCache() error {
-	data, err := w.templateJson()
+	templateCache := make(IpfixTemplateCache)
+	w.sessionMap.Range(func(key, session interface{}) bool {
+		templateCache[key.(string)] = session.(*IpfixSession).ExportTemplateRecords()
+		return true
+	})
+
+	jsonData, err := json.MarshalIndent(templateCache, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -215,7 +191,7 @@ func (w *IpfixSessionWorker) writeCache() error {
 	}
 	defer os.Remove(tempFile.Name())
 
-	_, err = tempFile.Write(data)
+	_, err = tempFile.Write(jsonData)
 	if err != nil {
 		return err
 	}
