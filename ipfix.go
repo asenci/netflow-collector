@@ -292,13 +292,13 @@ func (w *IpfixWorker) Run() error {
 					case "sourceIPv4Address", "sourceIPv6Address":
 						flow.SourceAddress = field.Value.(*net.IP).String()
 					case "bgpSourceAsNumber":
-						flow.SourceAs = field.Value.(uint32)
+						flow.SourcePeerAs = field.Value.(uint32)
 					case "sourceTransportPort":
 						flow.SourcePort = field.Value.(uint16)
 					case "destinationIPv4Address", "destinationIPv6Address":
 						flow.DestinationAddress = field.Value.(*net.IP).String()
 					case "bgpDestinationAsNumber":
-						flow.DestinationAs = field.Value.(uint32)
+						flow.DestinationPeerAs = field.Value.(uint32)
 					case "destinationTransportPort":
 						flow.DestinationPort = field.Value.(uint16)
 					case "protocolIdentifier":
