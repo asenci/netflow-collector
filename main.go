@@ -6,9 +6,8 @@ import (
 	"syscall"
 )
 
-//todo: session get channel
 //todo: expire caches
-//todo: stats channel
+//todo: add IP addresses raw format
 func main() {
 	options := NewOptions()
 	options.SetFlags()

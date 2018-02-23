@@ -49,22 +49,18 @@ type IanaMainWorkerStats struct {
 type IanaWorker struct {
 	*Worker
 
-	stats         *IanaWorkerStats
 	inputChannel  <-chan *Flow
 	outputChannel chan<- *Flow
+	stats         *IanaWorkerStats
 }
 
 func NewIanaWorker(i int, p WorkerInterface, o *Options, in <-chan *Flow, out chan<- *Flow) *IanaWorker {
 	return &IanaWorker{
 		Worker: NewWorker(fmt.Sprintf("resolver %d", i), p, o),
 
-		stats: &IanaWorkerStats{
-			Hits:   make(map[string]uint64),
-			Misses: make(map[string]uint64),
-			Total:  make(map[string]uint64),
-		},
 		inputChannel:  in,
 		outputChannel: out,
+		stats:         new(IanaWorkerStats),
 	}
 }
 
@@ -73,29 +69,29 @@ func (w *IanaWorker) Run() error {
 	for flow := range w.inputChannel {
 		transportProtocol := IanaProtocol[flow.TransportProtocolRaw]
 		if transportProtocol == "" {
-			w.stats.Total["unknown"]++
+			w.stats.Misses++
 			flow.TransportProtocol = "unknown"
 			continue
 		}
-		w.stats.Total[transportProtocol]++
+		w.stats.Hits++
 		flow.TransportProtocol = transportProtocol
 
 		if portMap, ok := IanaPort[transportProtocol]; ok {
 			sourcePort := portMap[flow.SourcePortRaw]
 			if sourcePort == "" {
-				w.stats.Misses[transportProtocol]++
+				w.stats.Misses++
 				flow.SourcePort = "unknown"
 			} else {
-				w.stats.Hits[transportProtocol]++
+				w.stats.Hits++
 				flow.SourcePort = sourcePort
 			}
 
 			destinationPort := portMap[flow.DestinationPortRaw]
 			if destinationPort == "" {
-				w.stats.Misses[transportProtocol]++
+				w.stats.Misses++
 				flow.DestinationPort = "unknown"
 			} else {
-				w.stats.Hits[transportProtocol]++
+				w.stats.Hits++
 				flow.DestinationPort = destinationPort
 			}
 		}
@@ -112,7 +108,6 @@ func (w *IanaWorker) Stats() interface{} {
 
 type IanaWorkerStats struct {
 	Errors uint64
-	Hits   map[string]uint64
-	Misses map[string]uint64
-	Total  map[string]uint64
+	Hits   uint64
+	Misses uint64
 }
