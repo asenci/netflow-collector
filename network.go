@@ -23,18 +23,14 @@ func (u NetworkPayload) Host() string {
 type NetworkWorker struct {
 	*Worker
 
-	address       string
 	stats         *NetworkWorkerStats
 	outputChannel chan<- *NetworkPayload
 }
 
 func NewNetworkWorker(n string, p WorkerInterface, o *Options, out chan<- *NetworkPayload) *NetworkWorker {
-	w := NewWorker(n, p, o)
-
 	return &NetworkWorker{
-		Worker: w,
+		Worker: NewWorker(n, p, o),
 
-		address:       w.options.IpfixAddress,
 		stats:         new(NetworkWorkerStats),
 		outputChannel: out,
 	}
@@ -43,7 +39,7 @@ func NewNetworkWorker(n string, p WorkerInterface, o *Options, out chan<- *Netwo
 func (w *NetworkWorker) Run() error {
 	defer close(w.outputChannel)
 
-	packetConn, err := net.ListenPacket("udp", w.address)
+	packetConn, err := net.ListenPacket("udp", w.options.IpfixAddress)
 	if err != nil {
 		w.stats.Errors++
 		return err

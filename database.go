@@ -103,10 +103,8 @@ type DatabaseWorker struct {
 }
 
 func NewDatabaseWorker(i int, p WorkerInterface, o *Options, db *sql.DB, in <-chan *Flow) *DatabaseWorker {
-	w := NewWorker(fmt.Sprintf("writer %d", i), p, o)
-
 	return &DatabaseWorker{
-		Worker: w,
+		Worker: NewWorker(fmt.Sprintf("writer %d", i), p, o),
 
 		database:     db,
 		inputChannel: in,

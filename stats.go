@@ -14,10 +14,8 @@ type StatsWorker struct {
 }
 
 func NewStatsWorker(p WorkerInterface, o *Options, root WorkerInterface) *StatsWorker {
-	w := NewWorker("stats", p, o)
-
 	return &StatsWorker{
-		Worker: w,
+		Worker: NewWorker("stats", p, o),
 
 		root:  root,
 		stats: new(StatsWorkerStats),

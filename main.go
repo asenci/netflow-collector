@@ -7,9 +7,8 @@ import (
 )
 
 //todo: session get channel
-//todo: fix in/out channels types
 //todo: expire caches
-
+//todo: stats channel
 func main() {
 	options := NewOptions()
 	options.SetFlags()

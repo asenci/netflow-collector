@@ -77,10 +77,8 @@ type IpfixSessionWorker struct {
 }
 
 func NewIpfixSessionWorker(p WorkerInterface, o *Options) *IpfixSessionWorker {
-	w := NewWorker("session", p, o)
-
-	w2 := &IpfixSessionWorker{
-		Worker: w,
+	w := &IpfixSessionWorker{
+		Worker: NewWorker("session", p, o),
 
 		sessionMap:    make(IpfixSessionMap),
 		sessionMutex:  new(sync.RWMutex),
@@ -89,18 +87,18 @@ func NewIpfixSessionWorker(p WorkerInterface, o *Options) *IpfixSessionWorker {
 		templateMutex: new(sync.RWMutex),
 	}
 
-	if err := w2.loadCache(); err != nil {
+	if err := w.loadCache(); err != nil {
 		if os.IsNotExist(err) {
-			w2.Log("template cache file does not exist, ignoring")
+			w.Log("template cache file does not exist, ignoring")
 		} else {
-			w2.stats.Errors++
-			w2.Log("error loading template cache: ", err)
+			w.stats.Errors++
+			w.Log("error loading template cache: ", err)
 		}
 	} else {
-		w2.Log("template cache loaded")
+		w.Log("template cache loaded")
 	}
 
-	return w2
+	return w
 }
 
 func (w *IpfixSessionWorker) Session(key string) *IpfixSession {
@@ -250,10 +248,8 @@ type IpfixWorker struct {
 }
 
 func NewIpfixWorker(i int, p WorkerInterface, o *Options, s *IpfixSessionWorker, in <-chan *NetworkPayload, out chan<- *Flow) *IpfixWorker {
-	w := NewWorker(fmt.Sprintf("reader %d", i), p, o)
-
 	return &IpfixWorker{
-		Worker: w,
+		Worker: NewWorker(fmt.Sprintf("reader %d", i), p, o),
 
 		sessionWorker: s,
 		stats:         new(IpfixWorkerStats),
