@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -285,20 +286,26 @@ func (w *IpfixWorker) Run() error {
 
 				for _, field := range fieldList {
 					switch field.Name {
+					case "protocolIdentifier":
+						flow.TransportProtocolRaw = field.Value.(uint8)
 					case "sourceIPv4Address", "sourceIPv6Address":
-						flow.SourceAddress = field.Value.(*net.IP).String()
+						flow.IpVersion,
+							flow.SourceAddress,
+							flow.SourceAddressRawHigh,
+							flow.SourceAddressRawLow = IPtoByte(field.Value.(*net.IP))
 					case "bgpSourceAsNumber":
 						flow.SourcePeerAs = field.Value.(uint32)
 					case "sourceTransportPort":
 						flow.SourcePortRaw = field.Value.(uint16)
 					case "destinationIPv4Address", "destinationIPv6Address":
-						flow.DestinationAddress = field.Value.(*net.IP).String()
+						flow.IpVersion,
+							flow.DestinationAddress,
+							flow.DestinationAddressRawHigh,
+							flow.DestinationAddressRawLow = IPtoByte(field.Value.(*net.IP))
 					case "bgpDestinationAsNumber":
 						flow.DestinationPeerAs = field.Value.(uint32)
 					case "destinationTransportPort":
 						flow.DestinationPortRaw = field.Value.(uint16)
-					case "protocolIdentifier":
-						flow.TransportProtocolRaw = field.Value.(uint8)
 					case "octetDeltaCount":
 						flow.Bytes = field.Value.(uint64)
 					case "packetDeltaCount":
@@ -324,4 +331,16 @@ type IpfixWorkerStats struct {
 	FlowsReceived     uint64
 	MessagesReceived  uint64
 	TemplatesReceived uint64
+}
+
+// Returns (IP version, IP as string, IP high bytes, IP low bytes
+func IPtoByte(ip *net.IP) (uint8, string, uint64, uint64) {
+	switch len(*ip) {
+	case 4:
+		return 4, ip.String(), 0, uint64(binary.BigEndian.Uint32(*ip))
+	case 16:
+		return 6, ip.String(), binary.BigEndian.Uint64((*ip)[:8]), binary.BigEndian.Uint64((*ip)[8:])
+	default:
+		return 0, "invalid", 0, 0
+	}
 }
