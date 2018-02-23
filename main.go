@@ -39,13 +39,16 @@ func NewMainWorker(o *Options) *MainWorker {
 }
 
 func (w *MainWorker) Run() error {
-	sqlChannel := make(chan *Flow, 100000)
+	databaseChannel := make(chan *Flow, 100000)
+	ianaChannel := make(chan *Flow, 100000)
 
 	w.Spawn(NewStatsWorker(w, nil, w))
 
-	w.Spawn(NewDatabaseMainWorker(w, nil, sqlChannel))
+	w.Spawn(NewDatabaseMainWorker(w, nil, databaseChannel))
 
-	w.Spawn(NewIpfixMainWorker(w, nil, sqlChannel))
+	w.Spawn(NewIanaMainWorker(w, nil, ianaChannel, databaseChannel))
+
+	w.Spawn(NewIpfixMainWorker(w, nil, ianaChannel))
 
 	w.Wait()
 	return nil

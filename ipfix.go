@@ -290,15 +290,15 @@ func (w *IpfixWorker) Run() error {
 					case "bgpSourceAsNumber":
 						flow.SourcePeerAs = field.Value.(uint32)
 					case "sourceTransportPort":
-						flow.SourcePort = field.Value.(uint16)
+						flow.SourcePortRaw = field.Value.(uint16)
 					case "destinationIPv4Address", "destinationIPv6Address":
 						flow.DestinationAddress = field.Value.(*net.IP).String()
 					case "bgpDestinationAsNumber":
 						flow.DestinationPeerAs = field.Value.(uint32)
 					case "destinationTransportPort":
-						flow.DestinationPort = field.Value.(uint16)
+						flow.DestinationPortRaw = field.Value.(uint16)
 					case "protocolIdentifier":
-						flow.TransportProtocol = field.Value.(uint8)
+						flow.TransportProtocolRaw = field.Value.(uint8)
 					case "octetDeltaCount":
 						flow.Bytes = field.Value.(uint64)
 					case "packetDeltaCount":
