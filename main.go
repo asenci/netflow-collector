@@ -9,12 +9,13 @@ import (
 
 //todo: expire caches
 //todo: snmp
-//todo: geoip
 //todo: number of iana workers
 //todo: udp buffer size
 //todo: sliding receive buffer for network worker
 //todo: database retry
 //todo: chan sizes
+//todo: reload geoip db
+//todo: geoip db path and workers
 func main() {
 	c := NewMainWorker()
 
@@ -49,6 +50,7 @@ func (w *MainWorker) Init() error {
 	w.channels = map[string]chan *Flow{
 		"database": make(chan *Flow, 50000),
 		"iana":     make(chan *Flow, 50000),
+		"geoip":    make(chan *Flow, 50000),
 	}
 
 	return nil
@@ -59,7 +61,9 @@ func (w *MainWorker) Run() error {
 
 	w.Spawn(NewDatabaseMainWorker(w.channels["database"]))
 
-	w.Spawn(NewIanaMainWorker(w.channels["iana"], w.channels["database"]))
+	w.Spawn(NewGeoipMainWorker(w.channels["geoip"], w.channels["database"]))
+
+	w.Spawn(NewIanaMainWorker(w.channels["iana"], w.channels["geoip"]))
 
 	w.Spawn(NewIpfixMainWorker(w.channels["iana"]))
 
