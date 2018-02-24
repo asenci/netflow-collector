@@ -9,57 +9,74 @@ import (
 type StatsWorker struct {
 	*Worker
 
-	root  WorkerInterface
-	stats *StatsWorkerStats
+	listener   net.Listener
+	mainWorker WorkerInterface
+	server     *http.Server
+
+	Errors   uint64
+	Requests uint64
 }
 
-func NewStatsWorker(p WorkerInterface, o *Options, root WorkerInterface) *StatsWorker {
+func NewStatsWorker(m WorkerInterface) *StatsWorker {
 	return &StatsWorker{
-		Worker: NewWorker("stats", p, o),
+		Worker: NewWorker("stats"),
 
-		root:  root,
-		stats: new(StatsWorkerStats),
+		mainWorker: m,
 	}
 }
 
-func (w *StatsWorker) Run() error {
-	http.HandleFunc("/", func(responseWriter http.ResponseWriter, r *http.Request) {
-		w.stats.Requests++
+func (w *StatsWorker) Init() error {
+	var err error
 
-		if err := json.NewEncoder(responseWriter).Encode(w.root.Stats()); err != nil {
-			w.stats.Errors++
+	http.HandleFunc("/", func(responseWriter http.ResponseWriter, r *http.Request) {
+		w.Requests++
+
+		if err := json.NewEncoder(responseWriter).Encode(w.mainWorker.Stats()); err != nil {
+			w.Errors++
 			w.Log(err)
 		}
 	})
 
-	listener, err := net.Listen("tcp", w.options.StatsAddress)
+	w.listener, err = net.Listen("tcp", w.options.StatsAddress)
 	if err != nil {
-		w.stats.Errors++
+		w.Errors++
 		return err
 	}
-	w.Log("listening on ", listener.Addr())
+	w.Log("listening on ", w.listener.Addr())
 
-	server := &http.Server{Addr: w.options.StatsAddress, Handler: nil}
-
-	go func(l net.Listener, s *http.Server) {
-		<-w.shutdown
-		s.Close()
-		l.Close()
-	}(listener, server)
-
-	if err := server.Serve(listener.(*net.TCPListener)); err != nil {
-		w.stats.Errors++
-		return err
-	}
+	w.server = &http.Server{Addr: w.options.StatsAddress, Handler: nil}
 
 	return nil
 }
 
-func (w *StatsWorker) Stats() interface{} {
-	return w.stats
+func (w *StatsWorker) Run() error {
+	defer w.parent.waitGroup.Add(1)
+	w.parent.waitGroup.Done()
+
+	if err := w.server.Serve(w.listener.(*net.TCPListener)); err != nil {
+		if err.Error() == "http: Server closed" {
+			w.Log("server closed")
+			return nil
+		}
+		w.Errors++
+		return err
+	}
+	return nil
 }
 
-type StatsWorkerStats struct {
-	Errors   uint64
-	Requests uint64
+func (w *StatsWorker) Stats() []Stats {
+	if w.exiting {
+		return nil
+	}
+
+	return []Stats{
+		Stats{
+			w.name: append([]Stats{
+				Stats{
+					"Errors":   w.Errors,
+					"Requests": w.Requests,
+				},
+			}, w.Worker.Stats()...),
+		},
+	}
 }

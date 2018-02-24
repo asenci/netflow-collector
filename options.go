@@ -42,7 +42,7 @@ func NewOptions() *Options {
 	}
 }
 
-func (o *Options) SetFlags() {
+func (o *Options) SetFlags() *Options {
 	flag.StringVar(&o.DatabaseAddress, "database-address", o.DatabaseAddress, "database connection string")
 	flag.IntVar(&o.DatabaseBatchSize, "database-batch-size", o.DatabaseBatchSize, "number of rows to process per transaction")
 	flag.StringVar(&o.DatabaseDriver, "database-driver", o.DatabaseDriver, "database connection driver")
@@ -60,4 +60,6 @@ func (o *Options) SetFlags() {
 	o.IpfixAddress = net.JoinHostPort(o.ipfixHost, strconv.Itoa(o.ipfixPort))
 
 	o.StatsAddress = net.JoinHostPort(o.statsHost, strconv.Itoa(o.statsPort))
+
+	return o
 }

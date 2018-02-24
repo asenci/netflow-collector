@@ -8,125 +8,105 @@ import (
 	"sync"
 )
 
-var ShutdownAlreadyInProgress = errors.New("shutdown already in progress")
+var InitializationError error = errors.New("worker has not been properly initialized")
 
-type StatsMap map[string]interface{}
+type Stats map[string]interface{}
 
 type Worker struct {
 	children  []WorkerInterface
 	exiting   bool
-	logPrefix string
 	name      string
 	options   *Options
-	parent    WorkerInterface
+	parent    *Worker
 	shutdown  chan bool
 	waitGroup *sync.WaitGroup
 }
 
-func NewWorker(n string, p WorkerInterface, o *Options) *Worker {
-	if o == nil && p != nil {
-		o = p.Options()
-	}
-
+func NewWorker(n string) *Worker {
 	w := &Worker{
 		children:  make([]WorkerInterface, 0),
 		exiting:   false,
 		name:      n,
-		options:   o,
-		parent:    p,
-		shutdown:  make(chan bool, 1),
 		waitGroup: new(sync.WaitGroup),
 	}
-
-	parents := make([]string, 0)
-	for _, p := range w.Parents() {
-		parents = append(parents, p.Name())
-	}
-	prefix := strings.Join(append(parents, w.Name()), " ")
-	w.logPrefix = prefix
 
 	return w
 }
 
+func (w *Worker) Init() error {
+	if w.parent == nil || w.options == nil || w.shutdown == nil {
+		return InitializationError
+	}
+	return nil
+}
+
 func (w *Worker) Log(a ...interface{}) {
-	log.Printf("[%s] %s\n", w.logPrefix, fmt.Sprint(a...))
+	w.log(nil, a)
 }
 
-func (w *Worker) Name() string {
-	return w.name
-}
-
-func (w *Worker) Options() *Options {
-	return w.options
-}
-
-func (w *Worker) Parents() []WorkerInterface {
-	if w.parent == nil {
-		return []WorkerInterface{}
-	}
-
-	return append(w.parent.Parents(), w.parent)
-}
-
-func (w *Worker) RunChild(c WorkerInterface) {
-	if w.exiting {
+func (w *Worker) log(prefix []string, msg []interface{}) {
+	if w.parent != nil {
+		w.parent.log(append([]string{w.name}, prefix...), msg)
 		return
 	}
 
-	w.Log("new child worker: ", c.Name())
-	w.children = append(w.children, c)
+	log.Printf("[%s] %s\n", strings.Join(prefix, " "), fmt.Sprint(msg...))
+}
 
-	err := c.Run()
-	if err != nil {
-		w.Log(fmt.Sprintf("child worker runtime error: %s: ", c.Name()), err)
-
-		if parents := w.Parents(); len(parents) > 0 {
-			parents[0].Shutdown()
-		} else {
-			w.Shutdown()
-		}
-
-		return
-	}
-
-	w.Log("child worker returned: ", c.Name())
+func (w *Worker) SetParent(p *Worker) {
+	w.parent = p
+	w.options = p.options
+	w.shutdown = p.shutdown
 }
 
 func (w *Worker) Spawn(c WorkerInterface) {
+	c.SetParent(w)
+
+	if err := c.Init(); err != nil {
+		c.Log(fmt.Sprintf("%T: %+v", err, err))
+		w.SigShutdown()
+		return
+	}
+
+	go func() {
+		c.Shutdown()
+	}()
+
+	w.children = append(w.children, c)
+
 	w.waitGroup.Add(1)
 	go func() {
 		defer w.waitGroup.Done()
 
-		w.RunChild(c)
+		err := c.Run()
+		if err != nil {
+			c.Log(fmt.Sprintf("%T: %+v", err, err))
+			w.SigShutdown()
+		}
+
 	}()
 }
 
-func (w *Worker) Shutdown() error {
-	if w.exiting {
-		return ShutdownAlreadyInProgress
-	}
-
-	w.exiting = true
-
-	w.Log("shutting down")
-
-	for _, c := range w.children {
-		go func(c WorkerInterface) {
-			c.Shutdown()
-		}(c)
-	}
-
-	w.shutdown <- true
-	return nil
+func (w *Worker) SigShutdown() {
+	go func() {
+		for {
+			w.shutdown <- true
+		}
+	}()
 }
 
-func (w *Worker) Stats() interface{} {
-	statsMap := make(StatsMap)
+func (w *Worker) Shutdown() {
+	<-w.shutdown
+	w.exiting = true
+}
+
+func (w *Worker) Stats() []Stats {
+	stats := make([]Stats, 0)
 	for _, c := range w.children {
-		statsMap[c.Name()] = c.Stats()
+		stats = append(stats, c.Stats()...)
 	}
 
-	return statsMap
+	return stats
 }
 
 func (w *Worker) Wait() {
@@ -134,10 +114,11 @@ func (w *Worker) Wait() {
 }
 
 type WorkerInterface interface {
-	Name() string
-	Options() *Options
-	Parents() []WorkerInterface
+	Log(...interface{})
+	Init() error
 	Run() error
-	Shutdown() error
-	Stats() interface{}
+	SetParent(*Worker)
+	Shutdown()
+	Stats() []Stats
+	Wait()
 }

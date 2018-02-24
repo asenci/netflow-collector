@@ -16,46 +16,56 @@ import (
 type DatabaseMainWorker struct {
 	*Worker
 
+	db           *sql.DB
 	inputChannel <-chan *Flow
-	stats        *DatabaseMainWorkerStats
+
+	Errors uint64
 }
 
-func NewDatabaseMainWorker(p WorkerInterface, o *Options, in <-chan *Flow) *DatabaseMainWorker {
+func NewDatabaseMainWorker(in <-chan *Flow) *DatabaseMainWorker {
 	return &DatabaseMainWorker{
-		Worker: NewWorker("database", p, o),
+		Worker: NewWorker("database"),
 
 		inputChannel: in,
-		stats:        new(DatabaseMainWorkerStats),
 	}
 }
 
-func (w *DatabaseMainWorker) Run() error {
-	database, err := sql.Open(w.options.DatabaseDriver, w.options.DatabaseAddress)
+func (w *DatabaseMainWorker) Init() error {
+	var err error
+
+	w.db, err = sql.Open(w.options.DatabaseDriver, w.options.DatabaseAddress)
 	if err != nil {
-		w.stats.Errors++
+		w.Errors++
 		return err
 	}
 
+	return nil
+}
+
+func (w *DatabaseMainWorker) Run() error {
 	for i := 0; i < w.options.DatabaseWorkers; i++ {
-		w.Spawn(NewDatabaseWorker(i, w, nil, database, w.inputChannel))
+		w.Spawn(NewDatabaseWorker(i, w.db, w.inputChannel))
 	}
 
 	w.Wait()
 	return nil
 }
 
-func (w *DatabaseMainWorker) Stats() interface{} {
-	statsMap := w.Worker.Stats().(StatsMap)
+func (w *DatabaseMainWorker) Stats() []Stats {
+	if w.exiting {
+		return nil
+	}
 
-	w.stats.Queue = len(w.inputChannel)
-	statsMap[w.Name()] = w.stats
-
-	return statsMap
-}
-
-type DatabaseMainWorkerStats struct {
-	Errors uint64
-	Queue  int
+	return []Stats{
+		Stats{
+			w.name: append([]Stats{
+				Stats{
+					"Errors": w.Errors,
+					"Queue":  len(w.inputChannel),
+				},
+			}, w.Worker.Stats()...),
+		},
+	}
 }
 
 type DatabaseRow Flow
@@ -97,40 +107,48 @@ func (r DatabaseRow) Values() []interface{} {
 type DatabaseWorker struct {
 	*Worker
 
-	database     *sql.DB
+	db           *sql.DB
 	inputChannel <-chan *Flow
-	stats        *DatabaseWorkerStats
+	sqlStatement string
+
+	Errors    uint64
+	Commits   uint64
+	Inserts   uint64
+	Rollbacks uint64
 }
 
-func NewDatabaseWorker(i int, p WorkerInterface, o *Options, db *sql.DB, in <-chan *Flow) *DatabaseWorker {
+func NewDatabaseWorker(i int, db *sql.DB, in <-chan *Flow) *DatabaseWorker {
 	return &DatabaseWorker{
-		Worker: NewWorker(fmt.Sprintf("writer %d", i), p, o),
+		Worker: NewWorker(fmt.Sprintf("writer %d", i)),
 
-		database:     db,
+		db:           db,
 		inputChannel: in,
-		stats:        new(DatabaseWorkerStats),
 	}
 }
 
+func (w *DatabaseWorker) Init() error {
+	w.sqlStatement = (&DatabaseRow{}).InsertStatement(w.options.DatabaseTable)
+
+	return nil
+}
+
 func (w *DatabaseWorker) Run() error {
-	sqlStatement := (&DatabaseRow{}).InsertStatement(w.options.DatabaseTable)
-
 	for !w.exiting {
-		err := w.database.Ping()
+		err := w.db.Ping()
 		if err != nil {
-			w.stats.Errors++
+			w.Errors++
 			return err
 		}
 
-		tx, err := w.database.Begin()
+		tx, err := w.db.Begin()
 		if err != nil {
-			w.stats.Errors++
+			w.Errors++
 			return err
 		}
 
-		stmt, err := tx.Prepare(sqlStatement)
+		stmt, err := tx.Prepare(w.sqlStatement)
 		if err != nil {
-			w.stats.Errors++
+			w.Errors++
 			return err
 		}
 
@@ -142,42 +160,50 @@ func (w *DatabaseWorker) Run() error {
 
 			_, err := stmt.Exec(DatabaseRow(*flow).Values()...)
 			if err != nil {
-				w.stats.Errors++
+				w.Errors++
 				w.Log(err)
 				break
 			}
-			w.stats.Inserts++
+			w.Inserts++
 		}
 
 		err = tx.Commit()
 		if err != nil {
-			w.stats.Errors++
+			w.Errors++
 			w.Log(err)
 
 			err = tx.Rollback()
 			if err != nil {
-				w.stats.Errors++
+				w.Errors++
 				w.Log(err)
 			}
-			w.stats.Rollbacks++
+			w.Rollbacks++
 
 			time.Sleep(time.Second)
 			continue
 		}
-		w.stats.Commits++
+		w.Commits++
 
 	}
 
 	return nil
 }
 
-func (w *DatabaseWorker) Stats() interface{} {
-	return w.stats
-}
+func (w *DatabaseWorker) Stats() []Stats {
+	if w.exiting {
+		return nil
+	}
 
-type DatabaseWorkerStats struct {
-	Commits   uint64
-	Errors    uint64
-	Inserts   uint64
-	Rollbacks uint64
+	return []Stats{
+		Stats{
+			w.name: append([]Stats{
+				Stats{
+					"Errors":    w.Errors,
+					"Commits":   w.Commits,
+					"Inserts":   w.Inserts,
+					"Rollbacks": w.Rollbacks,
+				},
+			}, w.Worker.Stats()...),
+		},
+	}
 }

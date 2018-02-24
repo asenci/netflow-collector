@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"strings"
 )
 
 type NetworkPayload struct {
@@ -23,43 +24,59 @@ func (u NetworkPayload) Host() string {
 type NetworkWorker struct {
 	*Worker
 
-	stats         *NetworkWorkerStats
 	outputChannel chan<- *NetworkPayload
+	packetConn    net.PacketConn
+
+	Errors          uint64
+	ReceivedPackets uint64
 }
 
-func NewNetworkWorker(n string, p WorkerInterface, o *Options, out chan<- *NetworkPayload) *NetworkWorker {
+func NewNetworkWorker(out chan<- *NetworkPayload) *NetworkWorker {
 	return &NetworkWorker{
-		Worker: NewWorker(n, p, o),
+		Worker: NewWorker("network"),
 
-		stats:         new(NetworkWorkerStats),
 		outputChannel: out,
 	}
+}
+
+func (w *NetworkWorker) Init() error {
+	var err error
+
+	w.packetConn, err = net.ListenPacket("udp", w.options.IpfixAddress)
+	if err != nil {
+		w.Errors++
+		return err
+	}
+	w.Log("listening on ", w.packetConn.LocalAddr())
+
+	switch pc := w.packetConn.(type) {
+	case *net.IPConn:
+		pc.SetReadBuffer(16777216)
+	case *net.UDPConn:
+		pc.SetReadBuffer(16777216)
+	case *net.UnixConn:
+		pc.SetReadBuffer(16777216)
+	}
+
+	return nil
 }
 
 func (w *NetworkWorker) Run() error {
 	defer close(w.outputChannel)
 
-	packetConn, err := net.ListenPacket("udp", w.options.IpfixAddress)
-	if err != nil {
-		w.stats.Errors++
-		return err
-	}
-	w.Log("listening on ", packetConn.LocalAddr())
-
-	go func(pc net.PacketConn) {
-		<-w.shutdown
-		pc.Close()
-	}(packetConn)
-
 	inboundBuffer := make([]byte, 65536)
-	for {
-		n, addr, err := packetConn.ReadFrom(inboundBuffer)
+	for !w.exiting {
+		n, addr, err := w.packetConn.ReadFrom(inboundBuffer)
 		if err != nil {
-			w.stats.Errors++
+			if strings.HasSuffix(err.Error(), ": use of closed network connection") {
+				w.Log("socket closed")
+				return nil
+			}
+
+			w.Errors++
 			return err
 		}
-
-		w.stats.ReceivedPackets++
+		w.ReceivedPackets++
 
 		payload := &NetworkPayload{address: addr}
 		payload.data = make([]byte, n)
@@ -67,13 +84,29 @@ func (w *NetworkWorker) Run() error {
 
 		w.outputChannel <- payload
 	}
+
+	return nil
 }
 
-func (w *NetworkWorker) Stats() interface{} {
-	return w.stats
+func (w *NetworkWorker) Shutdown() {
+	w.Worker.Shutdown()
+
+	w.packetConn.Close()
 }
 
-type NetworkWorkerStats struct {
-	Errors          uint64
-	ReceivedPackets uint64
+func (w *NetworkWorker) Stats() []Stats {
+	if w.exiting {
+		return nil
+	}
+
+	return []Stats{
+		Stats{
+			w.name: append([]Stats{
+				Stats{
+					"Errors":          w.Errors,
+					"ReceivedPackets": w.ReceivedPackets,
+				},
+			}, w.Worker.Stats()...),
+		},
+	}
 }

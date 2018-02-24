@@ -9,16 +9,14 @@ type IanaMainWorker struct {
 
 	inputChannel  <-chan *Flow
 	outputChannel chan<- *Flow
-	stats         *IanaMainWorkerStats
 }
 
-func NewIanaMainWorker(p WorkerInterface, o *Options, in <-chan *Flow, out chan<- *Flow) *IanaMainWorker {
+func NewIanaMainWorker(in <-chan *Flow, out chan<- *Flow) *IanaMainWorker {
 	return &IanaMainWorker{
-		Worker: NewWorker("iana", p, o),
+		Worker: NewWorker("iana"),
 
 		inputChannel:  in,
 		outputChannel: out,
-		stats:         new(IanaMainWorkerStats),
 	}
 }
 
@@ -26,24 +24,27 @@ func (w *IanaMainWorker) Run() error {
 	defer close(w.outputChannel)
 
 	for i := 0; i < w.options.IpfixWorkers; i++ {
-		w.Spawn(NewIanaWorker(i, w, nil, w.inputChannel, w.outputChannel))
+		w.Spawn(NewIanaWorker(i, w.inputChannel, w.outputChannel))
 	}
 
 	w.Wait()
 	return nil
 }
 
-func (w *IanaMainWorker) Stats() interface{} {
-	statsMap := w.Worker.Stats().(StatsMap)
+func (w *IanaMainWorker) Stats() []Stats {
+	if w.exiting {
+		return nil
+	}
 
-	w.stats.Queue = len(w.inputChannel)
-	statsMap[w.Name()] = w.stats
-
-	return statsMap
-}
-
-type IanaMainWorkerStats struct {
-	Queue int
+	return []Stats{
+		Stats{
+			w.name: append([]Stats{
+				Stats{
+					"Queue": len(w.inputChannel),
+				},
+			}, w.Worker.Stats()...),
+		},
+	}
 }
 
 type IanaWorker struct {
@@ -51,47 +52,48 @@ type IanaWorker struct {
 
 	inputChannel  <-chan *Flow
 	outputChannel chan<- *Flow
-	stats         *IanaWorkerStats
+
+	Errors uint64
+	Hits   uint64
+	Misses uint64
 }
 
-func NewIanaWorker(i int, p WorkerInterface, o *Options, in <-chan *Flow, out chan<- *Flow) *IanaWorker {
+func NewIanaWorker(i int, in <-chan *Flow, out chan<- *Flow) *IanaWorker {
 	return &IanaWorker{
-		Worker: NewWorker(fmt.Sprintf("resolver %d", i), p, o),
+		Worker: NewWorker(fmt.Sprintf("resolver %d", i)),
 
 		inputChannel:  in,
 		outputChannel: out,
-		stats:         new(IanaWorkerStats),
 	}
 }
 
 func (w *IanaWorker) Run() error {
-
 	for flow := range w.inputChannel {
 		transportProtocol := IanaProtocol[flow.TransportProtocolRaw]
 		if transportProtocol == "" {
-			w.stats.Misses++
+			w.Misses++
 			flow.TransportProtocol = "unknown"
 			continue
 		}
-		w.stats.Hits++
+		w.Hits++
 		flow.TransportProtocol = transportProtocol
 
 		if portMap, ok := IanaPort[transportProtocol]; ok {
 			sourcePort := portMap[flow.SourcePortRaw]
 			if sourcePort == "" {
-				w.stats.Misses++
+				w.Misses++
 				flow.SourcePort = "unknown"
 			} else {
-				w.stats.Hits++
+				w.Hits++
 				flow.SourcePort = sourcePort
 			}
 
 			destinationPort := portMap[flow.DestinationPortRaw]
 			if destinationPort == "" {
-				w.stats.Misses++
+				w.Misses++
 				flow.DestinationPort = "unknown"
 			} else {
-				w.stats.Hits++
+				w.Hits++
 				flow.DestinationPort = destinationPort
 			}
 		}
@@ -102,12 +104,20 @@ func (w *IanaWorker) Run() error {
 	return nil
 }
 
-func (w *IanaWorker) Stats() interface{} {
-	return w.stats
-}
+func (w *IanaWorker) Stats() []Stats {
+	if w.exiting {
+		return nil
+	}
 
-type IanaWorkerStats struct {
-	Errors uint64
-	Hits   uint64
-	Misses uint64
+	return []Stats{
+		Stats{
+			w.name: append([]Stats{
+				Stats{
+					"Errors": w.Errors,
+					"Hits":   w.Hits,
+					"Misses": w.Misses,
+				},
+			}, w.Worker.Stats()...),
+		},
+	}
 }

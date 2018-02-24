@@ -1,54 +1,77 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
 //todo: expire caches
-//todo: add IP addresses raw format
+//todo: snmp
+//todo: geoip
+//todo: number of iana workers
+//todo: udp buffer size
+//todo: sliding receive buffer for network worker
+//todo: database retry
+//todo: chan sizes
 func main() {
-	options := NewOptions()
-	options.SetFlags()
+	c := NewMainWorker()
 
-	main := NewMainWorker(options)
+	if err := c.Init(); err != nil {
+		c.Log(fmt.Sprintf("%T: %+v", err, err))
+		os.Exit(1)
+	}
 
-	shutdownChannel := make(chan os.Signal)
-	signal.Notify(shutdownChannel, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-	go func(w WorkerInterface) {
-		for range shutdownChannel {
-			w.Shutdown()
-		}
-	}(main)
+	go func() {
+		c.Shutdown()
+	}()
 
-	main.Run()
-
-	main.Wait()
+	c.Run()
 }
 
 type MainWorker struct {
 	*Worker
+
+	channels map[string]chan *Flow
 }
 
-func NewMainWorker(o *Options) *MainWorker {
+func NewMainWorker() *MainWorker {
 	return &MainWorker{
-		Worker: NewWorker("main", nil, o),
+		Worker: NewWorker("main"),
 	}
 }
 
+func (w *MainWorker) Init() error {
+	w.options = NewOptions().SetFlags()
+	w.shutdown = make(chan bool)
+
+	w.channels = map[string]chan *Flow{
+		"database": make(chan *Flow, 50000),
+		"iana":     make(chan *Flow, 50000),
+	}
+
+	return nil
+}
+
 func (w *MainWorker) Run() error {
-	databaseChannel := make(chan *Flow, 100000)
-	ianaChannel := make(chan *Flow, 100000)
+	w.Spawn(NewStatsWorker(w))
 
-	w.Spawn(NewStatsWorker(w, nil, w))
+	w.Spawn(NewDatabaseMainWorker(w.channels["database"]))
 
-	w.Spawn(NewDatabaseMainWorker(w, nil, databaseChannel))
+	w.Spawn(NewIanaMainWorker(w.channels["iana"], w.channels["database"]))
 
-	w.Spawn(NewIanaMainWorker(w, nil, ianaChannel, databaseChannel))
-
-	w.Spawn(NewIpfixMainWorker(w, nil, ianaChannel))
+	w.Spawn(NewIpfixMainWorker(w.channels["iana"]))
 
 	w.Wait()
 	return nil
+}
+
+func (w *MainWorker) Shutdown() {
+	shutdownChannel := make(chan os.Signal)
+	signal.Notify(shutdownChannel, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+
+	for range shutdownChannel {
+		w.SigShutdown()
+	}
 }

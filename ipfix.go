@@ -13,91 +13,143 @@ import (
 	"github.com/calmh/ipfix"
 )
 
+type IpfixCacheWriter struct {
+	*Worker
+
+	exportTicker   chan time.Time
+	periodicTicker *time.Ticker
+	writeCache     func() error
+
+	Errors      uint64
+	CacheWrites uint64
+}
+
+func NewIpfixCacheWriter(f func() error) *IpfixCacheWriter {
+	return &IpfixCacheWriter{
+		Worker: NewWorker("cache writer"),
+
+		writeCache: f,
+	}
+}
+
+func (w *IpfixCacheWriter) Init() error {
+	w.exportTicker = make(chan time.Time)
+	w.periodicTicker = time.NewTicker(w.options.IpfixCacheInterval)
+
+	return nil
+}
+
+func (w *IpfixCacheWriter) Run() error {
+	go func(in <-chan time.Time, out chan<- time.Time) {
+		for t := range in {
+			out <- t
+		}
+	}(w.periodicTicker.C, w.exportTicker)
+
+	for range w.exportTicker {
+		if err := w.writeCache(); err != nil {
+			w.Errors++
+			w.Log(err)
+		} else {
+			w.CacheWrites++
+		}
+	}
+
+	return nil
+}
+
+func (w *IpfixCacheWriter) Shutdown() {
+	w.Worker.Shutdown()
+
+	w.periodicTicker.Stop()
+	w.exportTicker <- time.Now()
+	close(w.exportTicker)
+}
+
+func (w *IpfixCacheWriter) Stats() []Stats {
+	if w.exiting {
+		return nil
+	}
+
+	return []Stats{
+		Stats{
+			w.name: append([]Stats{
+				Stats{
+					"Errors":      w.Errors,
+					"CacheWrites": w.CacheWrites,
+				},
+			}, w.Worker.Stats()...),
+		},
+	}
+}
+
 type IpfixMainWorker struct {
 	*Worker
 
 	networkChannel chan *NetworkPayload
 	outputChannel  chan<- *Flow
-	stats          *IpfixMainWorkerStats
+	session        *sync.Mutex
+	sessions       IpfixSessionMap
+	templates      IpfixTemplateCache
+
+	Errors   uint64
+	Sessions uint64
 }
 
-func NewIpfixMainWorker(p WorkerInterface, o *Options, out chan<- *Flow) *IpfixMainWorker {
+func NewIpfixMainWorker(out chan<- *Flow) *IpfixMainWorker {
 	return &IpfixMainWorker{
-		Worker: NewWorker("ipfix", p, o),
+		Worker: NewWorker("ipfix"),
 
-		networkChannel: make(chan *NetworkPayload, 100000),
+		networkChannel: make(chan *NetworkPayload, 50000),
 		outputChannel:  out,
-		stats:          new(IpfixMainWorkerStats),
+		session:        new(sync.Mutex),
+		sessions:       make(IpfixSessionMap),
+		templates:      make(IpfixTemplateCache),
 	}
 }
 
-func (w *IpfixMainWorker) Run() error {
-	defer close(w.outputChannel)
-
-	sessionWorker := NewIpfixSessionWorker(w, nil)
-	w.Spawn(sessionWorker)
-
-	for i := 0; i < w.options.IpfixWorkers; i++ {
-		w.Spawn(NewIpfixWorker(i, w, nil, sessionWorker, w.networkChannel, w.outputChannel))
-	}
-
-	w.Spawn(NewNetworkWorker("network", w, nil, w.networkChannel))
-
-	w.Wait()
-	return nil
-}
-
-func (w *IpfixMainWorker) Stats() interface{} {
-	statsMap := w.Worker.Stats().(StatsMap)
-
-	w.stats.Queue = len(w.networkChannel)
-	statsMap[w.Name()] = w.stats
-
-	return statsMap
-}
-
-type IpfixMainWorkerStats struct {
-	Queue int
-}
-
-type IpfixSession struct {
-	*ipfix.Session
-	*ipfix.Interpreter
-}
-
-type IpfixSessionMap map[string]*IpfixSession
-
-type IpfixSessionWorker struct {
-	*Worker
-
-	sessionMap    sync.Map
-	stats         *IpfixSessionWorkerStats
-	templateCache sync.Map
-}
-
-func NewIpfixSessionWorker(p WorkerInterface, o *Options) *IpfixSessionWorker {
-	w := &IpfixSessionWorker{
-		Worker: NewWorker("session", p, o),
-
-		stats: new(IpfixSessionWorkerStats),
-	}
+func (w *IpfixMainWorker) Init() error {
+	w.session.Lock()
+	defer w.session.Unlock()
 
 	if err := w.loadCache(); err != nil {
 		if os.IsNotExist(err) {
 			w.Log("template cache file does not exist, ignoring")
 		} else {
-			w.stats.Errors++
+			w.Errors++
 			w.Log("error loading template cache: ", err)
 		}
 	} else {
 		w.Log("template cache loaded")
 	}
 
-	return w
+	return nil
 }
 
-func (w *IpfixSessionWorker) Session(key string) *IpfixSession {
-	session, ok := w.sessionMap.Load(key)
+func (w *IpfixMainWorker) loadCache() error {
+	data, err := ioutil.ReadFile(w.options.IpfixCachePath)
+	if err != nil {
+		return err
+	}
+
+	templateCache := make(IpfixTemplateCache)
+	if err := json.Unmarshal(data, &templateCache); err != nil {
+		w.Errors++
+		return err
+	}
+
+	for session, templateRecords := range templateCache {
+		w.templates[session] = templateRecords
+	}
+
+	return nil
+}
+
+func (w *IpfixMainWorker) Session(key string) *IpfixSession {
+	w.session.Lock()
+	defer w.session.Unlock()
+
+	session, ok := w.sessions[key]
 	if !ok {
 		is := ipfix.NewSession()
 		ii := ipfix.NewInterpreter(is)
@@ -107,78 +159,60 @@ func (w *IpfixSessionWorker) Session(key string) *IpfixSession {
 			ii,
 		}
 
-		w.stats.Sessions++
-		w.sessionMap.Store(key, session)
+		w.Sessions++
+		w.sessions[key] = session
 
-		w.Log("created new session for ", key)
+		w.Log("new session: ", key)
 
-		if cachedTRecs, ok := w.templateCache.Load(key); ok {
-			is.LoadTemplateRecords(cachedTRecs.([]ipfix.TemplateRecord))
+		if cachedTRecs, ok := w.templates[key]; ok {
+			is.LoadTemplateRecords(cachedTRecs)
 		}
 	}
 
-	return session.(*IpfixSession)
+	return session
 }
 
-func (w *IpfixSessionWorker) loadCache() error {
-	data, err := ioutil.ReadFile(w.options.IpfixCachePath)
-	if err != nil {
-		return err
+func (w *IpfixMainWorker) Run() error {
+	defer close(w.outputChannel)
+
+	w.Spawn(NewIpfixCacheWriter(w.writeCache))
+
+	for i := 0; i < w.options.IpfixWorkers; i++ {
+		w.Spawn(NewIpfixWorker(i, w.Session, w.networkChannel, w.outputChannel))
 	}
 
-	templateCache := make(IpfixTemplateCache)
-	if err := json.Unmarshal(data, templateCache); err != nil {
-		w.stats.Errors++
-		return err
-	}
+	w.Spawn(NewNetworkWorker(w.networkChannel))
 
-	for session, templateRecords := range templateCache {
-		w.templateCache.Store(session, templateRecords)
-	}
-
+	w.Wait()
 	return nil
 }
 
-func (w *IpfixSessionWorker) Run() error {
-	periodicTicker := time.NewTicker(w.options.IpfixCacheInterval)
-	syncTicker := make(chan time.Time)
-
-	go func(in <-chan time.Time, out chan<- time.Time) {
-		for t := range in {
-			out <- t
-		}
-	}(periodicTicker.C, syncTicker)
-
-	go func(t *time.Ticker, c chan time.Time) {
-		<-w.shutdown
-
-		t.Stop()
-		c <- time.Now()
-		close(c)
-	}(periodicTicker, syncTicker)
-
-	for range syncTicker {
-		if err := w.writeCache(); err != nil {
-			w.stats.Errors++
-			w.Log(err)
-		} else {
-			w.stats.CacheWrites++
-		}
+func (w *IpfixMainWorker) Stats() []Stats {
+	if w.exiting {
+		return nil
 	}
 
-	return nil
+	return []Stats{
+		Stats{
+			w.name: append([]Stats{
+				Stats{
+					"Errors":   w.Errors,
+					"Queue":    len(w.networkChannel),
+					"Sessions": w.Sessions,
+				},
+			}, w.Worker.Stats()...),
+		},
+	}
 }
 
-func (w *IpfixSessionWorker) Stats() interface{} {
-	return w.stats
-}
-
-func (w *IpfixSessionWorker) writeCache() error {
+func (w *IpfixMainWorker) writeCache() error {
 	templateCache := make(IpfixTemplateCache)
-	w.sessionMap.Range(func(key, session interface{}) bool {
-		templateCache[key.(string)] = session.(*IpfixSession).ExportTemplateRecords()
-		return true
-	})
+
+	w.session.Lock()
+	for key, session := range w.sessions {
+		templateCache[key] = session.ExportTemplateRecords()
+	}
+	w.session.Unlock()
 
 	jsonData, err := json.MarshalIndent(templateCache, "", "  ")
 	if err != nil {
@@ -207,51 +241,54 @@ func (w *IpfixSessionWorker) writeCache() error {
 	return nil
 }
 
-type IpfixSessionWorkerStats struct {
-	Errors      uint64
-	Sessions    uint64
-	CacheWrites uint64
+type IpfixSession struct {
+	*ipfix.Session
+	*ipfix.Interpreter
 }
+
+type IpfixSessionMap map[string]*IpfixSession
 
 type IpfixTemplateCache map[string][]ipfix.TemplateRecord
 
 type IpfixWorker struct {
 	*Worker
 
-	sessionWorker *IpfixSessionWorker
-	stats         *IpfixWorkerStats
+	getSession    func(string) *IpfixSession
 	inputChannel  <-chan *NetworkPayload
 	outputChannel chan<- *Flow
+
+	Errors            uint64
+	FlowsReceived     uint64
+	MessagesReceived  uint64
+	TemplatesReceived uint64
 }
 
-func NewIpfixWorker(i int, p WorkerInterface, o *Options, s *IpfixSessionWorker, in <-chan *NetworkPayload, out chan<- *Flow) *IpfixWorker {
+func NewIpfixWorker(i int, f func(string) *IpfixSession, in <-chan *NetworkPayload, out chan<- *Flow) *IpfixWorker {
 	return &IpfixWorker{
-		Worker: NewWorker(fmt.Sprintf("reader %d", i), p, o),
+		Worker: NewWorker(fmt.Sprintf("reader %d", i)),
 
-		sessionWorker: s,
-		stats:         new(IpfixWorkerStats),
+		getSession:    f,
 		inputChannel:  in,
 		outputChannel: out,
 	}
 }
 
 func (w *IpfixWorker) Run() error {
-
 	for payload := range w.inputChannel {
 		sessionName := payload.address.String()
 
-		session := w.sessionWorker.Session(sessionName)
+		session := w.getSession(sessionName)
 
 		messageList, err := session.ParseBufferAll(payload.data)
 		if err != nil {
-			w.stats.Errors++
+			w.Errors++
 			w.Log(err)
 		}
 
 		for _, message := range messageList {
-			w.stats.FlowsReceived += uint64(len(message.DataRecords))
-			w.stats.MessagesReceived++
-			w.stats.TemplatesReceived += uint64(len(message.TemplateRecords))
+			w.FlowsReceived += uint64(len(message.DataRecords))
+			w.MessagesReceived++
+			w.TemplatesReceived += uint64(len(message.TemplateRecords))
 
 			for _, rec := range message.DataRecords {
 				fieldList := session.Interpret(rec)
@@ -298,15 +335,23 @@ func (w *IpfixWorker) Run() error {
 	return nil
 }
 
-func (w *IpfixWorker) Stats() interface{} {
-	return w.stats
-}
+func (w *IpfixWorker) Stats() []Stats {
+	if w.exiting {
+		return nil
+	}
 
-type IpfixWorkerStats struct {
-	Errors            uint64
-	FlowsReceived     uint64
-	MessagesReceived  uint64
-	TemplatesReceived uint64
+	return []Stats{
+		Stats{
+			w.name: append([]Stats{
+				Stats{
+					"Errors":            w.Errors,
+					"FlowsReceived":     w.FlowsReceived,
+					"MessagesReceived":  w.MessagesReceived,
+					"TemplatesReceived": w.TemplatesReceived,
+				},
+			}, w.Worker.Stats()...),
+		},
+	}
 }
 
 // Returns (IP version, IP as string, IP high bytes, IP low bytes
