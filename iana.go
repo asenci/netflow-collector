@@ -72,7 +72,7 @@ func (w *IanaWorker) Run() error {
 		transportProtocol := IanaProtocol[flow.TransportProtocolRaw]
 		if transportProtocol == "" {
 			w.Misses++
-			flow.TransportProtocol = "unknown"
+			flow.TransportProtocol = fmt.Sprintf("unkown (%d)", flow.TransportProtocolRaw)
 			continue
 		}
 		w.Hits++
@@ -82,7 +82,7 @@ func (w *IanaWorker) Run() error {
 			sourcePort := portMap[flow.SourcePortRaw]
 			if sourcePort == "" {
 				w.Misses++
-				flow.SourcePort = "unknown"
+				flow.SourcePort = fmt.Sprintf("%s/%d", flow.TransportProtocol, flow.SourcePortRaw)
 			} else {
 				w.Hits++
 				flow.SourcePort = sourcePort
@@ -91,7 +91,7 @@ func (w *IanaWorker) Run() error {
 			destinationPort := portMap[flow.DestinationPortRaw]
 			if destinationPort == "" {
 				w.Misses++
-				flow.DestinationPort = "unknown"
+				flow.DestinationPort = fmt.Sprintf("%s/%d", flow.TransportProtocol, flow.DestinationPortRaw)
 			} else {
 				w.Hits++
 				flow.DestinationPort = destinationPort

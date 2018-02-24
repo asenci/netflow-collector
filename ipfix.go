@@ -362,6 +362,6 @@ func IPtoByte(ip *net.IP) (uint8, string, uint64, uint64) {
 	case 16:
 		return 6, ip.String(), binary.BigEndian.Uint64((*ip)[:8]), binary.BigEndian.Uint64((*ip)[8:])
 	default:
-		return 0, "invalid", 0, 0
+		return 0, "", 0, 0
 	}
 }
