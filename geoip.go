@@ -7,6 +7,15 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 )
 
+type GeoipData struct {
+	ASN     uint32 `maxminddb:"autonomous_system_number"`
+	Country struct {
+		IsoCode string            `maxminddb:"iso_code"`
+		Names   map[string]string `maxminddb:"names"`
+	} `maxminddb:"country"`
+	Organization string `maxminddb:"autonomous_system_organization"`
+}
+
 type GeoipMainWorker struct {
 	*Worker
 
@@ -26,7 +35,7 @@ func NewGeoipMainWorker(in <-chan *Flow, out chan<- *Flow) *GeoipMainWorker {
 func (w *GeoipMainWorker) Run() error {
 	defer close(w.outputChannel)
 
-	for i := 0; i < w.options.IpfixWorkers; i++ {
+	for i := 0; i < w.options.GeoipWorkers; i++ {
 		w.Spawn(NewGeoipWorker(i, w.inputChannel, w.outputChannel))
 	}
 
@@ -70,24 +79,17 @@ func NewGeoipWorker(i int, in <-chan *Flow, out chan<- *Flow) *GeoipWorker {
 }
 
 func (w *GeoipWorker) Run() error {
-	asnDb, err := maxminddb.Open("/var/lib/GeoIP/GeoLite2-ASN.mmdb")
+	asnDb, err := maxminddb.Open(w.options.GeoipAsnPath)
 	if err != nil {
 		return err
 	}
-	countryDb, err := maxminddb.Open("/var/lib/GeoIP/GeoLite2-Country.mmdb")
+	countryDb, err := maxminddb.Open(w.options.GeoipCountryPath)
 	if err != nil {
 		return err
 	}
 
 	for flow := range w.inputChannel {
-		var source, destination struct {
-			ASN     uint32 `maxminddb:"autonomous_system_number"`
-			Country struct {
-				IsoCode string            `maxminddb:"iso_code"`
-				Names   map[string]string `maxminddb:"names"`
-			} `maxminddb:"country"`
-			Organization string `maxminddb:"autonomous_system_organization"`
-		}
+		var source, destination GeoipData
 
 		sourceIp := net.ParseIP(flow.SourceAddress)
 		destinationIp := net.ParseIP(flow.DestinationAddress)

@@ -14,6 +14,9 @@ type Options struct {
 	DatabaseDriver     string
 	DatabaseTable      string
 	DatabaseWorkers    int
+	GeoipAsnPath     string
+	GeoipCountryPath string
+	GeoipWorkers     int
 	IanaWorkers     int
 	IpfixAddress       string
 	ipfixHost          string
@@ -34,6 +37,9 @@ func NewOptions() *Options {
 		DatabaseTable:      "netflow",
 		DatabaseWorkers:    runtime.NumCPU(),
 		ipfixHost:          "",
+		GeoipAsnPath:     "/var/lib/GeoIP/GeoLite2-ASN.mmdb",
+		GeoipCountryPath: "/var/lib/GeoIP/GeoLite2-Country.mmdb",
+		GeoipWorkers:     runtime.NumCPU(),
 		IanaWorkers:     runtime.NumCPU(),
 		IpfixCacheInterval: 10 * time.Minute,
 		IpfixCachePath:     "ipfix-cache.json",
@@ -50,6 +56,9 @@ func (o *Options) SetFlags() *Options {
 	flag.StringVar(&o.DatabaseDriver, "database-driver", o.DatabaseDriver, "database connection driver")
 	flag.StringVar(&o.DatabaseTable, "database-table", o.DatabaseTable, "destination table on the database")
 	flag.IntVar(&o.DatabaseWorkers, "database-workers", o.DatabaseWorkers, "number of database writer workers")
+	flag.StringVar(&o.GeoipAsnPath, "geoip-asn-path", o.GeoipAsnPath, "path to the GeoIP ASN database")
+	flag.StringVar(&o.GeoipCountryPath, "geoip-country-path", o.GeoipCountryPath, "path to the GeoIP country database")
+	flag.IntVar(&o.GeoipWorkers, "geoip-workers", o.GeoipWorkers, "number of GeoIP lookup workers")
 	flag.IntVar(&o.IanaWorkers, "iana-workers", o.IanaWorkers, "number of IANA (protocol and ports) lookup workers")
 	flag.StringVar(&o.ipfixHost, "ipfix-host", o.ipfixHost, "IPFIX listen host (default any)")
 	flag.DurationVar(&o.IpfixCacheInterval, "ipfix-cache-interval", o.IpfixCacheInterval, "IPFIX template cache update interval")

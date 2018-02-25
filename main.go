@@ -14,7 +14,6 @@ import (
 //todo: database retry
 //todo: chan sizes
 //todo: reload geoip db
-//todo: geoip db path and workers
 func main() {
 	c := NewMainWorker()
 
