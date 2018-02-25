@@ -9,7 +9,6 @@ import (
 
 //todo: expire caches
 //todo: snmp
-//todo: number of iana workers
 //todo: udp buffer size
 //todo: sliding receive buffer for network worker
 //todo: database retry

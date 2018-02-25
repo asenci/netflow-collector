@@ -14,6 +14,7 @@ type Options struct {
 	DatabaseDriver     string
 	DatabaseTable      string
 	DatabaseWorkers    int
+	IanaWorkers     int
 	IpfixAddress       string
 	ipfixHost          string
 	IpfixCacheInterval time.Duration
@@ -33,6 +34,7 @@ func NewOptions() *Options {
 		DatabaseTable:      "netflow",
 		DatabaseWorkers:    runtime.NumCPU(),
 		ipfixHost:          "",
+		IanaWorkers:     runtime.NumCPU(),
 		IpfixCacheInterval: 10 * time.Minute,
 		IpfixCachePath:     "ipfix-cache.json",
 		ipfixPort:          4739,
@@ -48,6 +50,7 @@ func (o *Options) SetFlags() *Options {
 	flag.StringVar(&o.DatabaseDriver, "database-driver", o.DatabaseDriver, "database connection driver")
 	flag.StringVar(&o.DatabaseTable, "database-table", o.DatabaseTable, "destination table on the database")
 	flag.IntVar(&o.DatabaseWorkers, "database-workers", o.DatabaseWorkers, "number of database writer workers")
+	flag.IntVar(&o.IanaWorkers, "iana-workers", o.IanaWorkers, "number of IANA (protocol and ports) lookup workers")
 	flag.StringVar(&o.ipfixHost, "ipfix-host", o.ipfixHost, "IPFIX listen host (default any)")
 	flag.DurationVar(&o.IpfixCacheInterval, "ipfix-cache-interval", o.IpfixCacheInterval, "IPFIX template cache update interval")
 	flag.StringVar(&o.IpfixCachePath, "ipfix-cache-path", o.IpfixCachePath, "IPFIX template cache path")

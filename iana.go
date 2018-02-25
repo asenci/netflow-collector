@@ -23,7 +23,7 @@ func NewIanaMainWorker(in <-chan *Flow, out chan<- *Flow) *IanaMainWorker {
 func (w *IanaMainWorker) Run() error {
 	defer close(w.outputChannel)
 
-	for i := 0; i < w.options.IpfixWorkers; i++ {
+	for i := 0; i < w.options.IanaWorkers; i++ {
 		w.Spawn(NewIanaWorker(i, w.inputChannel, w.outputChannel))
 	}
 
