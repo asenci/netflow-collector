@@ -181,7 +181,7 @@ func (w *DatabaseWorker) Run() error {
 			}
 		}
 
-		for i := 0; i < w.options.DatabaseBatchSize/w.options.DatabaseWorkers; i++ {
+		for i := 0; i < w.options.DatabaseBatchSize; i++ {
 			flow, open := <-w.inputChannel
 			if !open {
 				break
