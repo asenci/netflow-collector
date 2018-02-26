@@ -11,7 +11,10 @@ import (
 	_ "github.com/kshvakov/clickhouse"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/pkg/errors"
 )
+
+var DatabaseRetryExceeded = errors.New("database retry limit exceeded")
 
 type DatabaseMainWorker struct {
 	*Worker
@@ -133,23 +136,49 @@ func (w *DatabaseWorker) Init() error {
 }
 
 func (w *DatabaseWorker) Run() error {
+	errors := 0
+
 	for !w.exiting {
 		err := w.db.Ping()
 		if err != nil {
 			w.Errors++
-			return err
+			w.Log(err)
+
+			errors++
+			if errors > w.options.DatabaseRetry {
+				return DatabaseRetryExceeded
+			} else {
+				time.Sleep(time.Second)
+				continue
+			}
 		}
 
 		tx, err := w.db.Begin()
 		if err != nil {
 			w.Errors++
-			return err
+			w.Log(err)
+
+			errors++
+			if errors > w.options.DatabaseRetry {
+				return DatabaseRetryExceeded
+			} else {
+				time.Sleep(time.Second)
+				continue
+			}
 		}
 
 		stmt, err := tx.Prepare(w.sqlStatement)
 		if err != nil {
 			w.Errors++
-			return err
+			w.Log(err)
+
+			errors++
+			if errors > w.options.DatabaseRetry {
+				return DatabaseRetryExceeded
+			} else {
+				time.Sleep(time.Second)
+				continue
+			}
 		}
 
 		for i := 0; i < w.options.DatabaseBatchSize/w.options.DatabaseWorkers; i++ {
@@ -164,6 +193,7 @@ func (w *DatabaseWorker) Run() error {
 				w.Log(err)
 				break
 			}
+
 			w.Inserts++
 		}
 
@@ -172,18 +202,24 @@ func (w *DatabaseWorker) Run() error {
 			w.Errors++
 			w.Log(err)
 
+			w.Rollbacks++
 			err = tx.Rollback()
 			if err != nil {
 				w.Errors++
 				w.Log(err)
 			}
-			w.Rollbacks++
 
-			time.Sleep(time.Second)
-			continue
+			errors++
+			if errors > w.options.DatabaseRetry {
+				return DatabaseRetryExceeded
+			} else {
+				time.Sleep(time.Second)
+				continue
+			}
 		}
-		w.Commits++
 
+		errors = 0
+		w.Commits++
 	}
 
 	return nil

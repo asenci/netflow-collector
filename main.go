@@ -12,7 +12,6 @@ import (
 //todo: udp buffer size
 //todo: sliding receive buffer for network worker
 //todo: database retry
-//todo: chan sizes
 //todo: reload geoip db
 func main() {
 	c := NewMainWorker()
@@ -46,9 +45,9 @@ func (w *MainWorker) Init() error {
 	w.shutdown = make(chan bool)
 
 	w.channels = map[string]chan *Flow{
-		"database": make(chan *Flow, 50000),
-		"iana":     make(chan *Flow, 50000),
-		"geoip":    make(chan *Flow, 50000),
+		"database": make(chan *Flow, w.options.DatabaseQueueLength),
+		"iana":     make(chan *Flow, w.options.IanaQueueLength),
+		"geoip":    make(chan *Flow, w.options.GeoipQueueLength),
 	}
 
 	return nil

@@ -100,15 +100,16 @@ func NewIpfixMainWorker(out chan<- *Flow) *IpfixMainWorker {
 	return &IpfixMainWorker{
 		Worker: NewWorker("ipfix"),
 
-		networkChannel: make(chan *NetworkPayload, 50000),
-		outputChannel:  out,
-		session:        new(sync.Mutex),
-		sessions:       make(IpfixSessionMap),
-		templates:      make(IpfixTemplateCache),
+		outputChannel: out,
+		session:       new(sync.Mutex),
+		sessions:      make(IpfixSessionMap),
+		templates:     make(IpfixTemplateCache),
 	}
 }
 
 func (w *IpfixMainWorker) Init() error {
+	w.networkChannel = make(chan *NetworkPayload, w.options.IpfixQueueLength)
+
 	w.session.Lock()
 	defer w.session.Unlock()
 
