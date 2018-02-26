@@ -37,9 +37,9 @@ func (w *IanaMainWorker) Stats() []Stats {
 	}
 
 	return []Stats{
-		Stats{
+		{
 			w.name: append([]Stats{
-				Stats{
+				{
 					"Queue": len(w.inputChannel),
 				},
 			}, w.Worker.Stats()...),
@@ -110,9 +110,9 @@ func (w *IanaWorker) Stats() []Stats {
 	}
 
 	return []Stats{
-		Stats{
+		{
 			w.name: append([]Stats{
-				Stats{
+				{
 					"Errors": w.Errors,
 					"Hits":   w.Hits,
 					"Misses": w.Misses,

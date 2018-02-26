@@ -49,9 +49,9 @@ func (w *GeoipMainWorker) Stats() []Stats {
 	}
 
 	return []Stats{
-		Stats{
+		{
 			w.name: append([]Stats{
-				Stats{
+				{
 					"Queue": len(w.inputChannel),
 				},
 			}, w.Worker.Stats()...),
@@ -142,9 +142,9 @@ func (w *GeoipWorker) Stats() []Stats {
 	}
 
 	return []Stats{
-		Stats{
+		{
 			w.name: append([]Stats{
-				Stats{
+				{
 					"Errors":  w.Errors,
 					"Lookups": w.Lookups,
 				},

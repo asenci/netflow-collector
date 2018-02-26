@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-var InitializationError error = errors.New("worker has not been properly initialized")
+var InitializationError = errors.New("worker has not been properly initialized")
 
 type Stats map[string]interface{}
 

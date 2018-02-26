@@ -100,9 +100,9 @@ func (w *NetworkWorker) Stats() []Stats {
 	}
 
 	return []Stats{
-		Stats{
+		{
 			w.name: append([]Stats{
-				Stats{
+				{
 					"Errors":          w.Errors,
 					"ReceivedPackets": w.ReceivedPackets,
 				},

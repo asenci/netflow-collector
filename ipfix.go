@@ -72,9 +72,9 @@ func (w *IpfixCacheWriter) Stats() []Stats {
 	}
 
 	return []Stats{
-		Stats{
+		{
 			w.name: append([]Stats{
-				Stats{
+				{
 					"Errors":      w.Errors,
 					"CacheWrites": w.CacheWrites,
 				},
@@ -194,9 +194,9 @@ func (w *IpfixMainWorker) Stats() []Stats {
 	}
 
 	return []Stats{
-		Stats{
+		{
 			w.name: append([]Stats{
-				Stats{
+				{
 					"Errors":   w.Errors,
 					"Queue":    len(w.networkChannel),
 					"Sessions": w.Sessions,
@@ -342,9 +342,9 @@ func (w *IpfixWorker) Stats() []Stats {
 	}
 
 	return []Stats{
-		Stats{
+		{
 			w.name: append([]Stats{
-				Stats{
+				{
 					"Errors":            w.Errors,
 					"FlowsReceived":     w.FlowsReceived,
 					"MessagesReceived":  w.MessagesReceived,

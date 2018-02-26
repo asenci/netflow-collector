@@ -70,9 +70,9 @@ func (w *StatsWorker) Stats() []Stats {
 	}
 
 	return []Stats{
-		Stats{
+		{
 			w.name: append([]Stats{
-				Stats{
+				{
 					"Errors":   w.Errors,
 					"Requests": w.Requests,
 				},

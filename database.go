@@ -60,9 +60,9 @@ func (w *DatabaseMainWorker) Stats() []Stats {
 	}
 
 	return []Stats{
-		Stats{
+		{
 			w.name: append([]Stats{
-				Stats{
+				{
 					"Errors": w.Errors,
 					"Queue":  len(w.inputChannel),
 				},
@@ -231,9 +231,9 @@ func (w *DatabaseWorker) Stats() []Stats {
 	}
 
 	return []Stats{
-		Stats{
+		{
 			w.name: append([]Stats{
-				Stats{
+				{
 					"Errors":    w.Errors,
 					"Commits":   w.Commits,
 					"Inserts":   w.Inserts,
