@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	_ "github.com/kshvakov/clickhouse"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/pkg/errors"
 )
 
 var DatabaseRetryExceeded = errors.New("database retry limit exceeded")
