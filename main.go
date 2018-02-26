@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +15,9 @@ import (
 //todo: database retry
 //todo: reload geoip db
 func main() {
+	// Disable log timestamp
+	log.SetFlags(0)
+
 	c := NewMainWorker()
 
 	if err := c.Init(); err != nil {
