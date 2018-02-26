@@ -51,11 +51,11 @@ func (w *NetworkWorker) Init() error {
 
 	switch pc := w.packetConn.(type) {
 	case *net.IPConn:
-		pc.SetReadBuffer(16777216)
+		pc.SetReadBuffer(w.options.IpfixBufferSize)
 	case *net.UDPConn:
-		pc.SetReadBuffer(16777216)
+		pc.SetReadBuffer(w.options.IpfixBufferSize)
 	case *net.UnixConn:
-		pc.SetReadBuffer(16777216)
+		pc.SetReadBuffer(w.options.IpfixBufferSize)
 	}
 
 	return nil

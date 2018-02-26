@@ -26,6 +26,7 @@ type Options struct {
 	IanaWorkers     int
 
 	IpfixAddress       string
+	IpfixBufferSize    int
 	IpfixCacheInterval time.Duration
 	ipfixHost          string
 	IpfixCachePath     string
@@ -55,6 +56,8 @@ func NewOptions() *Options {
 
 		IanaQueueLength: 50000,
 		IanaWorkers:     runtime.NumCPU(),
+
+		IpfixBufferSize:    16 * 1024 * 1024, // 16MB
 		IpfixCacheInterval: 10 * time.Minute,
 		IpfixCachePath:     "ipfix-cache.json",
 		ipfixHost:          "",
@@ -84,6 +87,7 @@ func (o *Options) SetFlags() *Options {
 	flag.IntVar(&o.IanaQueueLength, "iana-queue-length", o.IanaQueueLength, "IANA workers inbound queue length")
 	flag.IntVar(&o.IanaWorkers, "iana-workers", o.IanaWorkers, "number of IANA (protocol and ports) lookup workers")
 
+	flag.IntVar(&o.IpfixBufferSize, "ipfix-buffer-size", o.IpfixBufferSize, "IPFIX socket buffer size")
 	flag.StringVar(&o.ipfixHost, "ipfix-host", o.ipfixHost, "IPFIX listen host (default any)")
 	flag.DurationVar(&o.IpfixCacheInterval, "ipfix-cache-interval", o.IpfixCacheInterval, "IPFIX template cache update interval")
 	flag.StringVar(&o.IpfixCachePath, "ipfix-cache-path", o.IpfixCachePath, "IPFIX template cache path")

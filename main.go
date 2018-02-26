@@ -10,7 +10,6 @@ import (
 
 //todo: expire caches
 //todo: snmp
-//todo: udp buffer size
 //todo: sliding receive buffer for network worker
 //todo: database retry
 //todo: reload geoip db
