@@ -50,8 +50,8 @@ func (w *StatsWorker) Init() error {
 }
 
 func (w *StatsWorker) Run() error {
-	defer w.parent.waitGroup.Add(1)
-	w.parent.waitGroup.Done()
+	defer w.parent.Add(1)
+	w.parent.Done()
 
 	if err := w.server.Serve(w.listener.(*net.TCPListener)); err != nil {
 		if err.Error() == "http: Server closed" {

@@ -13,21 +13,22 @@ var InitializationError = errors.New("worker has not been properly initialized")
 type Stats map[string]interface{}
 
 type Worker struct {
-	children  []WorkerInterface
-	exiting   bool
-	name      string
-	options   *Options
-	parent    *Worker
-	shutdown  chan bool
-	waitGroup *sync.WaitGroup
+	*sync.WaitGroup
+
+	children []WorkerInterface
+	exiting  bool
+	name     string
+	options  *Options
+	parent   *Worker
+	shutdown chan bool
 }
 
 func NewWorker(n string) *Worker {
 	w := &Worker{
-		children:  make([]WorkerInterface, 0),
-		exiting:   false,
-		name:      n,
-		waitGroup: new(sync.WaitGroup),
+		WaitGroup: new(sync.WaitGroup),
+
+		children: make([]WorkerInterface, 0),
+		name:     n,
 	}
 
 	return w
@@ -77,9 +78,9 @@ func (w *Worker) Spawn(c WorkerInterface) {
 
 	w.children = append(w.children, c)
 
-	w.waitGroup.Add(1)
+	w.Add(1)
 	go func() {
-		defer w.waitGroup.Done()
+		defer w.Done()
 
 		err := c.Run()
 		if err != nil {
@@ -112,18 +113,13 @@ func (w *Worker) Stats() Stats {
 	return stats
 }
 
-func (w *Worker) Wait() {
-	w.waitGroup.Wait()
-}
-
 type WorkerInterface interface {
-	Log(...interface{})
 	Init() error
+	Log(...interface{})
 	Name() string
 	Run() error
 	SetParent(*Worker)
 	Shutdown()
-	Stats() []Stats
 	Stats() Stats
 	Wait()
 }

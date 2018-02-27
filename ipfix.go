@@ -77,10 +77,10 @@ func (w *IpfixCacheWriter) Stats() Stats {
 
 type IpfixMainWorker struct {
 	*Worker
+	*sync.Mutex
 
 	networkChannel chan *NetworkPayload
 	outputChannel  chan<- *Flow
-	session        *sync.Mutex
 	sessions       IpfixSessionMap
 	templates      IpfixTemplateCache
 
@@ -90,9 +90,9 @@ type IpfixMainWorker struct {
 func NewIpfixMainWorker(out chan<- *Flow) *IpfixMainWorker {
 	return &IpfixMainWorker{
 		Worker: NewWorker("ipfix"),
+		Mutex:  new(sync.Mutex),
 
 		outputChannel: out,
-		session:       new(sync.Mutex),
 		sessions:      make(IpfixSessionMap),
 		templates:     make(IpfixTemplateCache),
 	}
@@ -101,8 +101,8 @@ func NewIpfixMainWorker(out chan<- *Flow) *IpfixMainWorker {
 func (w *IpfixMainWorker) Init() error {
 	w.networkChannel = make(chan *NetworkPayload, w.options.IpfixQueueLength)
 
-	w.session.Lock()
-	defer w.session.Unlock()
+	w.Lock()
+	defer w.Unlock()
 
 	if err := w.loadCache(); err != nil {
 		if os.IsNotExist(err) {
@@ -138,8 +138,8 @@ func (w *IpfixMainWorker) loadCache() error {
 }
 
 func (w *IpfixMainWorker) Session(key string) *IpfixSession {
-	w.session.Lock()
-	defer w.session.Unlock()
+	w.Lock()
+	defer w.Unlock()
 
 	session, ok := w.sessions[key]
 	if !ok {
@@ -190,11 +190,11 @@ func (w *IpfixMainWorker) Stats() Stats {
 func (w *IpfixMainWorker) writeCache() error {
 	templateCache := make(IpfixTemplateCache)
 
-	w.session.Lock()
+	w.Lock()
 	for key, session := range w.sessions {
 		templateCache[key] = session.ExportTemplateRecords()
 	}
-	w.session.Unlock()
+	w.Unlock()
 
 	jsonData, err := json.MarshalIndent(templateCache, "", "  ")
 	if err != nil {
