@@ -271,7 +271,7 @@ func (w *IpfixWorker) Run() error {
 
 		session := w.getSession(sessionName)
 
-		messageList, err := session.ParseBufferAll(payload.data)
+		messageList, err := session.ParseBufferAll(payload.Data())
 		if err != nil {
 			w.Errors++
 			w.Log(err)
