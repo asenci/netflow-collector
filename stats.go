@@ -65,10 +65,6 @@ func (w *StatsWorker) Run() error {
 }
 
 func (w *StatsWorker) Stats() []Stats {
-	if w.exiting {
-		return nil
-	}
-
 	return []Stats{
 		{
 			w.name: append([]Stats{

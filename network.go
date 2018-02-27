@@ -95,10 +95,6 @@ func (w *NetworkWorker) Shutdown() {
 }
 
 func (w *NetworkWorker) Stats() []Stats {
-	if w.exiting {
-		return nil
-	}
-
 	return []Stats{
 		{
 			w.name: append([]Stats{

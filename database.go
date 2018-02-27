@@ -55,10 +55,6 @@ func (w *DatabaseMainWorker) Run() error {
 }
 
 func (w *DatabaseMainWorker) Stats() []Stats {
-	if w.exiting {
-		return nil
-	}
-
 	return []Stats{
 		{
 			w.name: append([]Stats{
@@ -226,10 +222,6 @@ func (w *DatabaseWorker) Run() error {
 }
 
 func (w *DatabaseWorker) Stats() []Stats {
-	if w.exiting {
-		return nil
-	}
-
 	return []Stats{
 		{
 			w.name: append([]Stats{

@@ -67,10 +67,6 @@ func (w *IpfixCacheWriter) Shutdown() {
 }
 
 func (w *IpfixCacheWriter) Stats() []Stats {
-	if w.exiting {
-		return nil
-	}
-
 	return []Stats{
 		{
 			w.name: append([]Stats{
@@ -189,10 +185,6 @@ func (w *IpfixMainWorker) Run() error {
 }
 
 func (w *IpfixMainWorker) Stats() []Stats {
-	if w.exiting {
-		return nil
-	}
-
 	return []Stats{
 		{
 			w.name: append([]Stats{
@@ -329,7 +321,6 @@ func (w *IpfixWorker) Run() error {
 
 				w.outputChannel <- flow
 			}
-
 		}
 	}
 
@@ -337,10 +328,6 @@ func (w *IpfixWorker) Run() error {
 }
 
 func (w *IpfixWorker) Stats() []Stats {
-	if w.exiting {
-		return nil
-	}
-
 	return []Stats{
 		{
 			w.name: append([]Stats{

@@ -32,10 +32,6 @@ func (w *IanaMainWorker) Run() error {
 }
 
 func (w *IanaMainWorker) Stats() []Stats {
-	if w.exiting {
-		return nil
-	}
-
 	return []Stats{
 		{
 			w.name: append([]Stats{
@@ -105,10 +101,6 @@ func (w *IanaWorker) Run() error {
 }
 
 func (w *IanaWorker) Stats() []Stats {
-	if w.exiting {
-		return nil
-	}
-
 	return []Stats{
 		{
 			w.name: append([]Stats{

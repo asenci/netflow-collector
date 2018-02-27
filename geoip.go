@@ -44,10 +44,6 @@ func (w *GeoipMainWorker) Run() error {
 }
 
 func (w *GeoipMainWorker) Stats() []Stats {
-	if w.exiting {
-		return nil
-	}
-
 	return []Stats{
 		{
 			w.name: append([]Stats{
@@ -137,10 +133,6 @@ func (w *GeoipWorker) Run() error {
 }
 
 func (w *GeoipWorker) Stats() []Stats {
-	if w.exiting {
-		return nil
-	}
-
 	return []Stats{
 		{
 			w.name: append([]Stats{
