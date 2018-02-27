@@ -88,8 +88,7 @@ type IpfixMainWorker struct {
 	sessions       IpfixSessionMap
 	templates      IpfixTemplateCache
 
-	Errors   uint64
-	Sessions uint64
+	Errors uint64
 }
 
 func NewIpfixMainWorker(out chan<- *Flow) *IpfixMainWorker {
@@ -156,7 +155,6 @@ func (w *IpfixMainWorker) Session(key string) *IpfixSession {
 			ii,
 		}
 
-		w.Sessions++
 		w.sessions[key] = session
 
 		w.Log("new session: ", key)
@@ -191,7 +189,7 @@ func (w *IpfixMainWorker) Stats() []Stats {
 				{
 					"Errors":   w.Errors,
 					"Queue":    len(w.networkChannel),
-					"Sessions": w.Sessions,
+					"Sessions": len(w.sessions),
 				},
 			}, w.Worker.Stats()...),
 		},
