@@ -28,11 +28,15 @@ type Options struct {
 	IpfixAddress       string
 	IpfixBufferSize    int
 	IpfixCacheInterval time.Duration
-	ipfixHost          string
 	IpfixCachePath     string
+	ipfixHost          string
 	ipfixPort          int
 	IpfixQueueLength   int
 	IpfixWorkers       int
+
+	SnmpConfigPath  string
+	SnmpQueueLength int
+	SnmpWorkers     int
 
 	StatsAddress string
 	statsHost    string
@@ -65,6 +69,10 @@ func NewOptions() *Options {
 		IpfixQueueLength:   50000,
 		IpfixWorkers:       runtime.NumCPU(),
 
+		SnmpConfigPath:  "snmp.json",
+		SnmpQueueLength: 50000,
+		SnmpWorkers:     runtime.NumCPU(),
+
 		statsHost: "localhost",
 		statsPort: 8888,
 	}
@@ -85,15 +93,19 @@ func (o *Options) SetFlags() *Options {
 	flag.IntVar(&o.GeoipWorkers, "geoip-workers", o.GeoipWorkers, "number of GeoIP lookup workers")
 
 	flag.IntVar(&o.IanaQueueLength, "iana-queue-length", o.IanaQueueLength, "IANA workers inbound queue length")
-	flag.IntVar(&o.IanaWorkers, "iana-workers", o.IanaWorkers, "number of IANA (protocol and ports) lookup workers")
+	flag.IntVar(&o.IanaWorkers, "iana-workers", o.IanaWorkers, "number of IANA lookup (protocol and ports) workers")
 
 	flag.IntVar(&o.IpfixBufferSize, "ipfix-buffer-size", o.IpfixBufferSize, "IPFIX socket buffer size")
-	flag.StringVar(&o.ipfixHost, "ipfix-host", o.ipfixHost, "IPFIX listen host (default any)")
 	flag.DurationVar(&o.IpfixCacheInterval, "ipfix-cache-interval", o.IpfixCacheInterval, "IPFIX template cache update interval")
 	flag.StringVar(&o.IpfixCachePath, "ipfix-cache-path", o.IpfixCachePath, "IPFIX template cache path")
+	flag.StringVar(&o.ipfixHost, "ipfix-host", o.ipfixHost, "IPFIX listen host (default any)")
 	flag.IntVar(&o.ipfixPort, "ipfix-port", o.ipfixPort, "IPFIX listen port")
 	flag.IntVar(&o.IpfixQueueLength, "ipfix-queue-length", o.IpfixQueueLength, "IPFIX network outbound queue length")
 	flag.IntVar(&o.IpfixWorkers, "ipfix-workers", o.IpfixWorkers, "number of IPFIX message processing workers")
+
+	flag.StringVar(&o.SnmpConfigPath, "snmp-config-path", o.SnmpConfigPath, "path to the SNMP configuration file")
+	flag.IntVar(&o.SnmpQueueLength, "snmp-queue-length", o.SnmpQueueLength, "SNMP workers inbound queue length")
+	flag.IntVar(&o.SnmpWorkers, "snmp-workers", o.SnmpWorkers, "number of SNMP lookup (interface names) workers")
 
 	flag.StringVar(&o.statsHost, "stats-host", o.statsHost, "stats server listen host")
 	flag.IntVar(&o.statsPort, "stats-port", o.statsPort, "stats server listen port")

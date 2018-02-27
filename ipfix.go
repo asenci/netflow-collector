@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -297,6 +298,8 @@ func (w *IpfixWorker) Run() error {
 							flow.SourceAddress,
 							flow.SourceAddressRawHigh,
 							flow.SourceAddressRawLow = IPtoByte(field.Value.(*net.IP))
+					case "ingressInterface":
+						flow.SourceInterface = strconv.Itoa(int(field.Value.(uint32)))
 					case "bgpSourceAsNumber":
 						flow.SourcePeerAs = field.Value.(uint32)
 					case "sourceTransportPort":
@@ -306,6 +309,8 @@ func (w *IpfixWorker) Run() error {
 							flow.DestinationAddress,
 							flow.DestinationAddressRawHigh,
 							flow.DestinationAddressRawLow = IPtoByte(field.Value.(*net.IP))
+					case "egressInterface":
+						flow.DestinationInterface = strconv.Itoa(int(field.Value.(uint32)))
 					case "bgpDestinationAsNumber":
 						flow.DestinationPeerAs = field.Value.(uint32)
 					case "destinationTransportPort":

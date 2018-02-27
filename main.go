@@ -9,10 +9,9 @@ import (
 )
 
 //todo: expire caches
-//todo: snmp
-//todo: sliding receive buffer for network worker
-//todo: database retry
 //todo: reload geoip db
+//todo: snmp lru cache
+//todo: sync.Pool for network buffers
 func main() {
 	// Disable log timestamp
 	log.SetFlags(0)
@@ -51,6 +50,7 @@ func (w *MainWorker) Init() error {
 		"database": make(chan *Flow, w.options.DatabaseQueueLength),
 		"iana":     make(chan *Flow, w.options.IanaQueueLength),
 		"geoip":    make(chan *Flow, w.options.GeoipQueueLength),
+		"snmp":     make(chan *Flow, w.options.SnmpQueueLength),
 	}
 
 	return nil
@@ -65,7 +65,9 @@ func (w *MainWorker) Run() error {
 
 	w.Spawn(NewIanaMainWorker(w.channels["iana"], w.channels["geoip"]))
 
-	w.Spawn(NewIpfixMainWorker(w.channels["iana"]))
+	w.Spawn(NewSnmpMainWorker(w.channels["snmp"], w.channels["iana"]))
+
+	w.Spawn(NewIpfixMainWorker(w.channels["snmp"]))
 
 	w.Wait()
 	return nil
