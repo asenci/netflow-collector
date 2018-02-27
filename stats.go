@@ -64,15 +64,10 @@ func (w *StatsWorker) Run() error {
 	return nil
 }
 
-func (w *StatsWorker) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Errors":   w.Errors,
-					"Requests": w.Requests,
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *StatsWorker) Stats() Stats {
+	return Stats{
+		"Errors":   w.Errors,
+		"Requests": w.Requests,
+		"Workers":  w.Worker.Stats(),
 	}
 }

@@ -43,15 +43,10 @@ func (w *GeoipMainWorker) Run() error {
 	return nil
 }
 
-func (w *GeoipMainWorker) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Queue": len(w.inputChannel),
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *GeoipMainWorker) Stats() Stats {
+	return Stats{
+		"Queue":   len(w.inputChannel),
+		"Workers": w.Worker.Stats(),
 	}
 }
 
@@ -132,15 +127,10 @@ func (w *GeoipWorker) Run() error {
 	return nil
 }
 
-func (w *GeoipWorker) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Errors":  w.Errors,
-					"Lookups": w.Lookups,
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *GeoipWorker) Stats() Stats {
+	return Stats{
+		"Errors":  w.Errors,
+		"Lookups": w.Lookups,
+		"Workers": w.Worker.Stats(),
 	}
 }

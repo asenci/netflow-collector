@@ -54,16 +54,11 @@ func (w *DatabaseMainWorker) Run() error {
 	return nil
 }
 
-func (w *DatabaseMainWorker) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Errors": w.Errors,
-					"Queue":  len(w.inputChannel),
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *DatabaseMainWorker) Stats() Stats {
+	return Stats{
+		"Errors":  w.Errors,
+		"Queue":   len(w.inputChannel),
+		"Workers": w.Worker.Stats(),
 	}
 }
 
@@ -110,8 +105,8 @@ type DatabaseWorker struct {
 	inputChannel <-chan *Flow
 	sqlStatement string
 
-	Errors    uint64
 	Commits   uint64
+	Errors    uint64
 	Inserts   uint64
 	Rollbacks uint64
 }
@@ -221,17 +216,12 @@ func (w *DatabaseWorker) Run() error {
 	return nil
 }
 
-func (w *DatabaseWorker) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Errors":    w.Errors,
-					"Commits":   w.Commits,
-					"Inserts":   w.Inserts,
-					"Rollbacks": w.Rollbacks,
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *DatabaseWorker) Stats() Stats {
+	return Stats{
+		"Commits":   w.Commits,
+		"Errors":    w.Errors,
+		"Inserts":   w.Inserts,
+		"Rollbacks": w.Rollbacks,
+		"Workers":   w.Worker.Stats(),
 	}
 }

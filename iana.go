@@ -31,15 +31,10 @@ func (w *IanaMainWorker) Run() error {
 	return nil
 }
 
-func (w *IanaMainWorker) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Queue": len(w.inputChannel),
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *IanaMainWorker) Stats() Stats {
+	return Stats{
+		"Queue":   len(w.inputChannel),
+		"Workers": w.Worker.Stats(),
 	}
 }
 
@@ -49,9 +44,8 @@ type IanaWorker struct {
 	inputChannel  <-chan *Flow
 	outputChannel chan<- *Flow
 
-	Errors uint64
-	Hits   uint64
-	Misses uint64
+	Lookups        uint64
+	LookupFailures uint64
 }
 
 func NewIanaWorker(i int, in <-chan *Flow, out chan<- *Flow) *IanaWorker {
@@ -66,30 +60,30 @@ func NewIanaWorker(i int, in <-chan *Flow, out chan<- *Flow) *IanaWorker {
 func (w *IanaWorker) Run() error {
 	for flow := range w.inputChannel {
 		transportProtocol := IanaProtocol[flow.TransportProtocolRaw]
+		w.Lookups++
 		if transportProtocol == "" {
-			w.Misses++
+			w.LookupFailures++
 			flow.TransportProtocol = fmt.Sprintf("unkown (%d)", flow.TransportProtocolRaw)
 			continue
 		}
-		w.Hits++
 		flow.TransportProtocol = transportProtocol
 
 		if portMap, ok := IanaPort[transportProtocol]; ok {
 			sourcePort := portMap[flow.SourcePortRaw]
+			w.Lookups++
 			if sourcePort == "" {
-				w.Misses++
+				w.LookupFailures++
 				flow.SourcePort = fmt.Sprintf("%s/%d", flow.TransportProtocol, flow.SourcePortRaw)
 			} else {
-				w.Hits++
 				flow.SourcePort = sourcePort
 			}
 
 			destinationPort := portMap[flow.DestinationPortRaw]
+			w.Lookups++
 			if destinationPort == "" {
-				w.Misses++
+				w.LookupFailures++
 				flow.DestinationPort = fmt.Sprintf("%s/%d", flow.TransportProtocol, flow.DestinationPortRaw)
 			} else {
-				w.Hits++
 				flow.DestinationPort = destinationPort
 			}
 		}
@@ -100,16 +94,10 @@ func (w *IanaWorker) Run() error {
 	return nil
 }
 
-func (w *IanaWorker) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Errors": w.Errors,
-					"Hits":   w.Hits,
-					"Misses": w.Misses,
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *IanaWorker) Stats() Stats {
+	return Stats{
+		"Lookups":        w.Lookups,
+		"LookupFailures": w.LookupFailures,
+		"Workers":        w.Worker.Stats(),
 	}
 }

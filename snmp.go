@@ -68,13 +68,15 @@ type SnmpAgentConfig struct {
 	Community string
 }
 
-type SnmpAgentMap map[string]*SnmpAgent
-
 var SnmpAgentConfigNotFount = errors.New("SNMP configuration not fount for target")
+
+type SnmpAgentMap map[string]*SnmpAgent
 
 var SnmpAgentTooManyPdu = errors.New("SNMP GET returned too many PDUs")
 
 type SnmpConfig map[string]SnmpAgentConfig
+
+type SnmpIfNameCache map[string]map[string]string
 
 const SnmpIfNameOid = ".1.3.6.1.2.1.31.1.1.1.1"
 
@@ -164,30 +166,26 @@ func (w *SnmpMainWorker) Run() error {
 	return nil
 }
 
-func (w *SnmpMainWorker) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Errors": w.Errors,
-					"Agents": len(w.agents),
-					"Queue":  len(w.inputChannel),
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *SnmpMainWorker) Stats() Stats {
+	return Stats{
+		"Agents":  len(w.agents),
+		"Errors":  w.Errors,
+		"Queue":   len(w.inputChannel),
+		"Workers": w.Worker.Stats(),
 	}
 }
 
 type SnmpWorker struct {
 	*Worker
 
+	cache         SnmpIfNameCache
 	getAgent      func(string) (*SnmpAgent, error)
 	inputChannel  <-chan *Flow
 	outputChannel chan<- *Flow
 
-	Errors         uint64
 	CacheHits      uint64
 	CacheMisses    uint64
+	Errors         uint64
 	Lookups        uint64
 	LookupFailures uint64
 }
@@ -196,6 +194,7 @@ func NewSnmpWorker(i int, f func(string) (*SnmpAgent, error), in <-chan *Flow, o
 	return &SnmpWorker{
 		Worker: NewWorker(fmt.Sprintf("resolver %d", i)),
 
+		cache:         make(SnmpIfNameCache),
 		getAgent:      f,
 		inputChannel:  in,
 		outputChannel: out,
@@ -203,13 +202,11 @@ func NewSnmpWorker(i int, f func(string) (*SnmpAgent, error), in <-chan *Flow, o
 }
 
 func (w *SnmpWorker) Run() error {
-	cache := make(map[string]map[string]string)
-
 	for flow := range w.inputChannel {
 		var sourceIfName, destinationIfName string
 		var hostCached, sourceCached, destinationCached bool
 
-		hostCache, hostCached := cache[flow.Host]
+		hostCache, hostCached := w.cache[flow.Host]
 		if hostCached {
 			sourceIfName, sourceCached = hostCache[flow.SourceInterface]
 			if sourceCached {
@@ -221,7 +218,7 @@ func (w *SnmpWorker) Run() error {
 				w.CacheHits++
 			}
 		} else {
-			cache[flow.Host] = make(map[string]string)
+			w.cache[flow.Host] = make(map[string]string)
 		}
 
 		if !(sourceCached && destinationCached) {
@@ -245,7 +242,7 @@ func (w *SnmpWorker) Run() error {
 					sourceIfName = fmt.Sprintf("ifIndex %s", flow.SourceInterface)
 				}
 
-				cache[flow.Host][flow.SourceInterface] = sourceIfName
+				w.cache[flow.Host][flow.SourceInterface] = sourceIfName
 			}
 
 			if !destinationCached {
@@ -262,7 +259,7 @@ func (w *SnmpWorker) Run() error {
 					destinationIfName = fmt.Sprintf("ifIndex %s", flow.DestinationInterface)
 				}
 
-				cache[flow.Host][flow.DestinationInterface] = destinationIfName
+				w.cache[flow.Host][flow.DestinationInterface] = destinationIfName
 			}
 		}
 
@@ -275,18 +272,19 @@ func (w *SnmpWorker) Run() error {
 	return nil
 }
 
-func (w *SnmpWorker) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Errors":         w.Errors,
-					"CacheHits":      w.CacheHits,
-					"CacheMisses":    w.CacheMisses,
-					"Lookups":        w.Lookups,
-					"LookupFailures": w.LookupFailures,
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *SnmpWorker) Stats() Stats {
+	cachedCount := 0
+	for _, c := range w.cache {
+		cachedCount += len(c)
+	}
+
+	return Stats{
+		"CacheEntries":   cachedCount,
+		"CacheHits":      w.CacheHits,
+		"CacheMisses":    w.CacheMisses,
+		"Errors":         w.Errors,
+		"Lookups":        w.Lookups,
+		"LookupFailures": w.LookupFailures,
+		"Workers":        w.Worker.Stats(),
 	}
 }

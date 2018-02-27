@@ -32,8 +32,8 @@ type NetworkWorker struct {
 	outputChannel chan<- *NetworkPayload
 	packetConn    net.PacketConn
 
-	Errors          uint64
-	ReceivedPackets uint64
+	Errors  uint64
+	Packets uint64
 }
 
 func NewNetworkWorker(out chan<- *NetworkPayload) *NetworkWorker {
@@ -96,7 +96,7 @@ func (w *NetworkWorker) Run() error {
 			w.Errors++
 			return err
 		}
-		w.ReceivedPackets++
+		w.Packets++
 
 		w.outputChannel <- payload
 	}
@@ -110,15 +110,10 @@ func (w *NetworkWorker) Shutdown() {
 	w.packetConn.Close()
 }
 
-func (w *NetworkWorker) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Errors":          w.Errors,
-					"ReceivedPackets": w.ReceivedPackets,
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *NetworkWorker) Stats() Stats {
+	return Stats{
+		"Errors":  w.Errors,
+		"Packets": w.Packets,
+		"Workers": w.Worker.Stats(),
 	}
 }

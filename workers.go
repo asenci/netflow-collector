@@ -47,10 +47,13 @@ func (w *Worker) Log(a ...interface{}) {
 func (w *Worker) log(prefix []string, msg []interface{}) {
 	if w.parent != nil {
 		w.parent.log(append([]string{w.name}, prefix...), msg)
-		return
+	} else {
+		log.Printf("[%s] %s\n", strings.Join(prefix, " "), fmt.Sprint(msg...))
 	}
+}
 
-	log.Printf("[%s] %s\n", strings.Join(prefix, " "), fmt.Sprint(msg...))
+func (w *Worker) Name() string {
+	return w.name
 }
 
 func (w *Worker) SetParent(p *Worker) {
@@ -100,10 +103,10 @@ func (w *Worker) Shutdown() {
 	w.exiting = true
 }
 
-func (w *Worker) Stats() []Stats {
-	stats := make([]Stats, 0)
+func (w *Worker) Stats() Stats {
+	stats := make(Stats)
 	for _, c := range w.children {
-		stats = append(stats, c.Stats()...)
+		stats[c.Name()] = c.Stats()
 	}
 
 	return stats
@@ -116,9 +119,11 @@ func (w *Worker) Wait() {
 type WorkerInterface interface {
 	Log(...interface{})
 	Init() error
+	Name() string
 	Run() error
 	SetParent(*Worker)
 	Shutdown()
 	Stats() []Stats
+	Stats() Stats
 	Wait()
 }

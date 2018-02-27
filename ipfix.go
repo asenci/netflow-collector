@@ -67,16 +67,11 @@ func (w *IpfixCacheWriter) Shutdown() {
 	close(w.exportTicker)
 }
 
-func (w *IpfixCacheWriter) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Errors":      w.Errors,
-					"CacheWrites": w.CacheWrites,
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *IpfixCacheWriter) Stats() Stats {
+	return Stats{
+		"Errors":      w.Errors,
+		"CacheWrites": w.CacheWrites,
+		"Workers":     w.Worker.Stats(),
 	}
 }
 
@@ -183,17 +178,12 @@ func (w *IpfixMainWorker) Run() error {
 	return nil
 }
 
-func (w *IpfixMainWorker) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Errors":   w.Errors,
-					"Queue":    len(w.networkChannel),
-					"Sessions": len(w.sessions),
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *IpfixMainWorker) Stats() Stats {
+	return Stats{
+		"Errors":   w.Errors,
+		"Queue":    len(w.networkChannel),
+		"Sessions": len(w.sessions),
+		"Workers":  w.Worker.Stats(),
 	}
 }
 
@@ -249,10 +239,10 @@ type IpfixWorker struct {
 	inputChannel  <-chan *NetworkPayload
 	outputChannel chan<- *Flow
 
-	Errors            uint64
-	FlowsReceived     uint64
-	MessagesReceived  uint64
-	TemplatesReceived uint64
+	Errors    uint64
+	Flows     uint64
+	Messages  uint64
+	Templates uint64
 }
 
 func NewIpfixWorker(i int, f func(string) *IpfixSession, in <-chan *NetworkPayload, out chan<- *Flow) *IpfixWorker {
@@ -278,9 +268,9 @@ func (w *IpfixWorker) Run() error {
 		}
 
 		for _, message := range messageList {
-			w.FlowsReceived += uint64(len(message.DataRecords))
-			w.MessagesReceived++
-			w.TemplatesReceived += uint64(len(message.TemplateRecords))
+			w.Flows += uint64(len(message.DataRecords))
+			w.Messages++
+			w.Templates += uint64(len(message.TemplateRecords))
 
 			for _, rec := range message.DataRecords {
 				fieldList := session.Interpret(rec)
@@ -330,18 +320,13 @@ func (w *IpfixWorker) Run() error {
 	return nil
 }
 
-func (w *IpfixWorker) Stats() []Stats {
-	return []Stats{
-		{
-			w.name: append([]Stats{
-				{
-					"Errors":            w.Errors,
-					"FlowsReceived":     w.FlowsReceived,
-					"MessagesReceived":  w.MessagesReceived,
-					"TemplatesReceived": w.TemplatesReceived,
-				},
-			}, w.Worker.Stats()...),
-		},
+func (w *IpfixWorker) Stats() Stats {
+	return Stats{
+		"Errors":    w.Errors,
+		"Flows":     w.Flows,
+		"Messages":  w.Messages,
+		"Templates": w.Templates,
+		"Workers":   w.Worker.Stats(),
 	}
 }
 
