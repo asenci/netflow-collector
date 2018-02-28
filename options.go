@@ -34,9 +34,10 @@ type Options struct {
 	IpfixQueueLength   int
 	IpfixWorkers       int
 
-	SnmpConfigPath  string
-	SnmpQueueLength int
-	SnmpWorkers     int
+	SnmpAgentCacheSize int
+	SnmpConfigPath     string
+	SnmpQueueLength    int
+	SnmpWorkers        int
 
 	StatsAddress string
 	statsHost    string
@@ -69,9 +70,10 @@ func NewOptions() *Options {
 		IpfixQueueLength:   50000,
 		IpfixWorkers:       runtime.NumCPU(),
 
-		SnmpConfigPath:  "snmp.json",
-		SnmpQueueLength: 50000,
-		SnmpWorkers:     runtime.NumCPU(),
+		SnmpAgentCacheSize: 128,
+		SnmpConfigPath:     "snmp.json",
+		SnmpQueueLength:    50000,
+		SnmpWorkers:        runtime.NumCPU(),
 
 		statsHost: "localhost",
 		statsPort: 8888,
@@ -103,6 +105,7 @@ func (o *Options) SetFlags() *Options {
 	flag.IntVar(&o.IpfixQueueLength, "ipfix-queue-length", o.IpfixQueueLength, "IPFIX network outbound queue length")
 	flag.IntVar(&o.IpfixWorkers, "ipfix-workers", o.IpfixWorkers, "number of IPFIX message processing workers")
 
+	flag.IntVar(&o.SnmpAgentCacheSize, "snmp-agent-cache-size", o.SnmpAgentCacheSize, "how many SNMP agents to hold in cache")
 	flag.StringVar(&o.SnmpConfigPath, "snmp-config-path", o.SnmpConfigPath, "path to the SNMP configuration file")
 	flag.IntVar(&o.SnmpQueueLength, "snmp-queue-length", o.SnmpQueueLength, "SNMP workers inbound queue length")
 	flag.IntVar(&o.SnmpWorkers, "snmp-workers", o.SnmpWorkers, "number of SNMP lookup (interface names) workers")

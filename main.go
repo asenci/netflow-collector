@@ -10,8 +10,9 @@ import (
 
 //todo: expire caches
 //todo: reload geoip db
-//todo: snmp lru cache
 //todo: sync.Pool for network buffers
+//todo: cleanup names with acronyms
+//todo: move chan close to shutdown? call shutdown on run exit?
 func main() {
 	// Disable log timestamp
 	log.SetFlags(0)
