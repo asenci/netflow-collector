@@ -25,14 +25,15 @@ type Options struct {
 	IanaQueueLength int
 	IanaWorkers     int
 
-	IpfixAddress       string
-	IpfixBufferSize    int
-	IpfixCacheInterval time.Duration
-	IpfixCachePath     string
-	ipfixHost          string
-	ipfixPort          int
-	IpfixQueueLength   int
-	IpfixWorkers       int
+	IpfixAddress          string
+	IpfixBufferSize       int
+	IpfixCacheInterval    time.Duration
+	IpfixCachePath        string
+	ipfixHost             string
+	ipfixPort             int
+	IpfixQueueLength      int
+	IpfixSessionCacheSize int
+	IpfixWorkers          int
 
 	SnmpAgentCacheSize int
 	SnmpConfigPath     string
@@ -62,13 +63,14 @@ func NewOptions() *Options {
 		IanaQueueLength: 50000,
 		IanaWorkers:     runtime.NumCPU(),
 
-		IpfixBufferSize:    16 * 1024 * 1024, // 16MB
-		IpfixCacheInterval: 10 * time.Minute,
-		IpfixCachePath:     "ipfix-cache.json",
-		ipfixHost:          "",
-		ipfixPort:          4739,
-		IpfixQueueLength:   50000,
-		IpfixWorkers:       runtime.NumCPU(),
+		IpfixBufferSize:       16 * 1024 * 1024, // 16MB
+		IpfixCacheInterval:    10 * time.Minute,
+		IpfixCachePath:        "ipfix-cache.json",
+		ipfixHost:             "",
+		ipfixPort:             4739,
+		IpfixQueueLength:      50000,
+		IpfixSessionCacheSize: 128,
+		IpfixWorkers:          runtime.NumCPU(),
 
 		SnmpAgentCacheSize: 128,
 		SnmpConfigPath:     "snmp.json",
@@ -103,9 +105,10 @@ func (o *Options) SetFlags() *Options {
 	flag.StringVar(&o.ipfixHost, "ipfix-host", o.ipfixHost, "IPFIX listen host (default any)")
 	flag.IntVar(&o.ipfixPort, "ipfix-port", o.ipfixPort, "IPFIX listen port")
 	flag.IntVar(&o.IpfixQueueLength, "ipfix-queue-length", o.IpfixQueueLength, "IPFIX network outbound queue length")
+	flag.IntVar(&o.IpfixSessionCacheSize, "ipfix-session-cache-size", o.IpfixSessionCacheSize, "number of IPFIX sessions to hold in cache")
 	flag.IntVar(&o.IpfixWorkers, "ipfix-workers", o.IpfixWorkers, "number of IPFIX message processing workers")
 
-	flag.IntVar(&o.SnmpAgentCacheSize, "snmp-agent-cache-size", o.SnmpAgentCacheSize, "how many SNMP agents to hold in cache")
+	flag.IntVar(&o.SnmpAgentCacheSize, "snmp-agent-cache-size", o.SnmpAgentCacheSize, "number of SNMP agents to hold in cache")
 	flag.StringVar(&o.SnmpConfigPath, "snmp-config-path", o.SnmpConfigPath, "path to the SNMP configuration file")
 	flag.IntVar(&o.SnmpQueueLength, "snmp-queue-length", o.SnmpQueueLength, "SNMP workers inbound queue length")
 	flag.IntVar(&o.SnmpWorkers, "snmp-workers", o.SnmpWorkers, "number of SNMP lookup (interface names) workers")
