@@ -24,6 +24,8 @@ type SnmpAgent struct {
 }
 
 func NewSnmpAgent(target, community string, ifNameCacheSize int) (*SnmpAgent, error) {
+	var err error
+
 	a := SnmpAgent{
 		GoSNMP: &gosnmp.GoSNMP{
 			Target:    target,
@@ -40,11 +42,10 @@ func NewSnmpAgent(target, community string, ifNameCacheSize int) (*SnmpAgent, er
 		return nil, err
 	}
 
-	newCache, err := lru.NewARC(ifNameCacheSize)
+	a.ifNameCache, err = lru.NewARC(ifNameCacheSize)
 	if err != nil {
 		return nil, err
 	}
-	a.ifNameCache = newCache
 
 	return &a, nil
 }
@@ -90,29 +91,40 @@ func (a *SnmpAgent) GetIfName(ifIndex string) (string, error) {
 
 type SnmpAgentCache struct {
 	*lru.ARCCache
+
+	snmpConfig SnmpConfig
 }
 
-func NewSnmpAgentCache(size int) (*SnmpAgentCache, error) {
+func NewSnmpAgentCache(size int, snmpConfig SnmpConfig) (*SnmpAgentCache, error) {
 	newCache, err := lru.NewARC(size)
 	if err != nil {
 		return nil, err
 	}
 
-	return &SnmpAgentCache{newCache}, nil
+	return &SnmpAgentCache{
+		ARCCache: newCache,
+
+		snmpConfig: snmpConfig,
+	}, nil
 }
 
-func (c *SnmpAgentCache) Get(target, community string, ifNameCacheSize int) (*SnmpAgent, error) {
-	cachedAgent, cached := c.ARCCache.Get(target)
+func (c *SnmpAgentCache) Get(key string) (*SnmpAgent, error) {
+	cachedAgent, cached := c.ARCCache.Get(key)
 	if cached {
 		return cachedAgent.(*SnmpAgent), nil
 
 	} else {
-		newAgent, err := NewSnmpAgent(target, community, ifNameCacheSize)
+		agentConfig, found := c.snmpConfig[key]
+		if !found {
+			return nil, SnmpAgentConfigNotFount
+		}
+
+		newAgent, err := NewSnmpAgent(agentConfig.Target, agentConfig.Community, agentConfig.IfNameCacheSize)
 		if err != nil {
 			return nil, err
 		}
 
-		c.ARCCache.Add(target, newAgent)
+		c.ARCCache.Add(key, newAgent)
 
 		return newAgent, nil
 	}
@@ -188,18 +200,20 @@ func NewSnmpWorker(i int, in <-chan *Flow, out chan<- *Flow) *SnmpWorker {
 }
 
 func (w *SnmpWorker) Init() error {
-	agentCache, err := NewSnmpAgentCache(w.options.SnmpAgentCacheSize)
-	if err != nil {
-		return err
-	}
-	w.agents = agentCache
+	var err error
 
 	snmpConfigData, err := ioutil.ReadFile(w.options.SnmpConfigPath)
 	if err != nil {
 		return err
 	}
 
-	if err := json.Unmarshal(snmpConfigData, &w.snmpConfig); err != nil {
+	snmpConfig := make(SnmpConfig)
+	if err := json.Unmarshal(snmpConfigData, &snmpConfig); err != nil {
+		return err
+	}
+
+	w.agents, err = NewSnmpAgentCache(w.options.SnmpAgentCacheSize, snmpConfig)
+	if err != nil {
 		return err
 	}
 
@@ -208,25 +222,22 @@ func (w *SnmpWorker) Init() error {
 
 func (w *SnmpWorker) Run() error {
 	for flow := range w.inputChannel {
-		agentConfig, found := w.snmpConfig[flow.Host]
-		if !found {
-			w.Errors++
-			return SnmpAgentConfigNotFount
-		}
-
-		agent, err := w.agents.Get(agentConfig.Target, agentConfig.Community, agentConfig.IfNameCacheSize)
+		agent, err := w.agents.Get(flow.Host)
 		if err != nil {
+			w.Errors++
 			return err
 		}
 
 		sourceIfName, err := agent.GetIfName(flow.SourceInterface)
 		if err != nil {
+			w.Errors++
 			w.Log(err)
 		}
 		flow.SourceInterface = sourceIfName
 
 		destinationIfName, err := agent.GetIfName(flow.DestinationInterface)
 		if err != nil {
+			w.Errors++
 			w.Log(err)
 		}
 		flow.DestinationInterface = destinationIfName
@@ -238,12 +249,12 @@ func (w *SnmpWorker) Run() error {
 }
 
 func (w *SnmpWorker) Stats() Stats {
-	agentsStats := make(map[string]map[string]interface{})
+	agentsStats := make(map[string]Stats)
 	for _, k := range w.agents.Keys() {
 		if i, found := w.agents.Peek(k); found {
 			a := i.(*SnmpAgent)
 
-			agentsStats[a.Target] = map[string]interface{}{
+			agentsStats[a.Target] = Stats{
 				"CachedIfNames":  a.ifNameCache.Len(),
 				"CacheHits":      a.CacheHits,
 				"CacheMisses":    a.CacheMisses,
