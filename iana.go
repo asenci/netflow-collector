@@ -68,7 +68,7 @@ func (w *IanaWorker) Run() error {
 		}
 		flow.TransportProtocol = transportProtocol
 
-		if portMap, ok := IanaPort[transportProtocol]; ok {
+		if portMap, found := IanaPort[transportProtocol]; found {
 			sourcePort := portMap[flow.SourcePortRaw]
 			w.Lookups++
 			if sourcePort == "" {

@@ -213,11 +213,11 @@ func parsePortNumbers(w io.Writer, r io.Reader) error {
 
 	prsMap := make(map[string][]canonPortRecord)
 	for _, pr := range prs {
-		pprs, ok := prsMap[pr.Protocol]
-		if !ok {
-			prsMap[pr.Protocol] = []canonPortRecord{pr}
-		} else {
+		pprs, found := prsMap[pr.Protocol]
+		if found {
 			prsMap[pr.Protocol] = append(pprs, pr)
+		} else {
+			prsMap[pr.Protocol] = []canonPortRecord{pr}
 		}
 	}
 

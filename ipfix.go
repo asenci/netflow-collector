@@ -141,8 +141,8 @@ func (w *IpfixMainWorker) Session(key string) *IpfixSession {
 	w.Lock()
 	defer w.Unlock()
 
-	session, ok := w.sessions[key]
-	if !ok {
+	session, found := w.sessions[key]
+	if !found {
 		is := ipfix.NewSession()
 		ii := ipfix.NewInterpreter(is)
 
@@ -155,7 +155,7 @@ func (w *IpfixMainWorker) Session(key string) *IpfixSession {
 
 		w.Log("new session: ", key)
 
-		if cachedTRecs, ok := w.templates[key]; ok {
+		if cachedTRecs, cached := w.templates[key]; cached {
 			is.LoadTemplateRecords(cachedTRecs)
 		}
 	}
